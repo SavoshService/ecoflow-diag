@@ -1,0 +1,63 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build release APK
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleRelease
+          mkdir -p out
+          cp app/build/outputs/apk/release/app-release.apk out/savosh-ecoflow-diag.apk
+
+      - name: Generate latest.json (маніфест оновлення для застосунку)
+        run: |
+          VER=$(grep -m1 versionName app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
+          REPO="${{ github.repository }}"
+          echo "Версія: $VER, репозиторій: $REPO"
+          cat > out/latest.json <<EOF
+          {
+            "version": "$VER",
+            "url": "https://github.com/$REPO/releases/download/latest/savosh-ecoflow-diag.apk",
+            "notes": "Остання збірка (коміт ${{ github.sha }})."
+          }
+          EOF
+          cat out/latest.json
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: savosh-ecoflow-diag
+          path: |
+            out/savosh-ecoflow-diag.apk
+            out/latest.json
+
+      - name: Publish "latest" release (direct link for phone + update manifest)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: EcoFlow Діагностика — остання збірка
+          body: "Збірка ${{ github.sha }}. Завантажте savosh-ecoflow-diag.apk на телефон і встановіть."
+          prerelease: false
+          make_latest: true
+          files: |
+            out/savosh-ecoflow-diag.apk
+            out/latest.json
