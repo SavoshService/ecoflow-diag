@@ -84,6 +84,7 @@ fun DiagScreen(vm: AppViewModel) {
     var shareMenu by remember { mutableStateOf(false) }
     var editCode by remember { mutableStateOf<CodeEdit?>(null) }
     var explain by remember { mutableStateOf<EcoflowCodes.Doc?>(null) }
+    var confirmClear by remember { mutableStateOf(false) }
 
     fun share(technical: Boolean) {
         vm.reportText(technical)?.let { shareText(context, it, "${if (technical) "Технічний звіт" else "Діагностика"} ${vm.diagSn}") }
@@ -125,7 +126,7 @@ fun DiagScreen(vm: AppViewModel) {
                             DropdownMenuItem(text = { Text("Сирі дані (усі параметри)") }, onClick = { menu = false; vm.openRaw() })
                             DropdownMenuItem(text = { Text("Журнал підключення") }, onClick = { menu = false; vm.openLog() })
                             if (vm.codeHistory.isNotEmpty()) {
-                                DropdownMenuItem(text = { Text("Очистити історію кодів") }, onClick = { menu = false; vm.clearCodeHistory() })
+                                DropdownMenuItem(text = { Text("Очистити історію кодів") }, onClick = { menu = false; confirmClear = true })
                             }
                         }
                     }
@@ -163,6 +164,19 @@ fun DiagScreen(vm: AppViewModel) {
         CodeNoteDialog(ec, vm.codeNote(ec.key), onDismiss = { editCode = null }, onSave = { vm.setCodeNote(ec.key, it); editCode = null })
     }
     explain?.let { doc -> ExplainDialog(doc) { explain = null } }
+    if (confirmClear) {
+        AlertDialog(
+            onDismissRequest = { confirmClear = false },
+            title = { Text("Очистити історію кодів?") },
+            text = { Text("Уся збережена історія появи/зникнення кодів цієї станції буде стерта безповоротно. Відновити її не вийде.") },
+            confirmButton = {
+                TextButton(onClick = { confirmClear = false; vm.clearCodeHistory() }) {
+                    Text("Стерти", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Скасувати") } },
+        )
+    }
 }
 
 // ============================================================ підключення
@@ -247,7 +261,7 @@ private fun OverviewTab(vm: AppViewModel, r: StationReport, onEditCode: (Indicat
 @Composable
 private fun PackCard(p: PackReport, single: Boolean, onEditCode: (Indicator) -> Unit) {
     val title = if (single) "Батарея" else p.title
-    var expanded by rememberSaveable(key = "exp_${p.key}") { mutableStateOf(false) }
+    var expanded by rememberSaveable(key = "exp_${p.key}") { mutableStateOf(true) }
     SectionCard(title) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             SohGauge(p.sohEffective, p.level)
@@ -336,8 +350,8 @@ private fun MonitorTab(vm: AppViewModel, r: StationReport) {
     SectionCard("Зараз") {
         Text(
             when {
-                w > 5 -> "⚡ Заряд +${fmt0(w)} Вт"
-                w < -5 -> "🔌 Розряд ${fmt0(-w)} Вт"
+                w > 5 -> "⚡ Заряджання +${fmt0(w)} Вт"
+                w < -5 -> "🔌 Розряджання ${fmt0(-w)} Вт"
                 else -> "⏸ Без струму"
             },
             style = MaterialTheme.typography.headlineSmall,
@@ -350,7 +364,7 @@ private fun MonitorTab(vm: AppViewModel, r: StationReport) {
         )
         Spacer(Modifier.height(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            Mini("Заряд", main?.soc?.let { "${fmt0(it)}%" } ?: "—")
+            Mini("Стан", main?.soc?.let { "${fmt0(it)}%" } ?: "—")
             Mini("Напруга", main?.volMv?.let { "${fmt1(it / 1000.0)} В" } ?: "—")
             Mini("Струм", main?.ampMa?.let { "${fmt1(it / 1000.0)} А" } ?: "—")
         }
