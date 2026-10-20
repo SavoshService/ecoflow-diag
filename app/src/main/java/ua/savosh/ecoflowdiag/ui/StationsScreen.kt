@@ -198,7 +198,9 @@ fun StationsScreen(vm: AppViewModel) {
                         onDelete = { confirmDelete = st },
                     )
                 }
-                item(key = "demo_card") { DemoCard(onOpen = { vm.openDemo() }) }
+                if (!vm.demoHidden) {
+                    item(key = "demo_card") { DemoCard(onOpen = { vm.openDemo() }, onDismiss = { vm.hideDemo() }) }
+                }
                 }
             }
         }
@@ -322,7 +324,7 @@ private fun OnlineDot(online: Boolean?) {
 
 /** Демо-станція: пульсуюча картка «спробувати програму на несправжніх даних». */
 @Composable
-private fun DemoCard(onOpen: () -> Unit) {
+private fun DemoCard(onOpen: () -> Unit, onDismiss: (() -> Unit)? = null) {
     var pulse by remember { mutableFloatStateOf(0f) }
     LaunchedEffect(Unit) {
         while (true) { pulse += 0.06f; kotlinx.coroutines.delay(33) }
@@ -333,7 +335,10 @@ private fun DemoCard(onOpen: () -> Unit) {
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
     ) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.padding(start = 16.dp, top = 10.dp, bottom = 10.dp, end = if (onDismiss != null) 4.dp else 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Box(Modifier.size(44.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = glow)), contentAlignment = Alignment.Center) {
                 Text("🧪", fontSize = 22.sp)
             }
@@ -342,6 +347,11 @@ private fun DemoCard(onOpen: () -> Unit) {
                 Text("Демо станція", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSecondaryContainer)
                 Text("Торкніться, щоб подивитись можливості: здоров'я, цикли, коди й пояснення, монітор заряду/розряду — на несправжніх даних.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
+            }
+            if (onDismiss != null) {
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Filled.Close, contentDescription = "Сховати демо", tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                }
             }
         }
     }

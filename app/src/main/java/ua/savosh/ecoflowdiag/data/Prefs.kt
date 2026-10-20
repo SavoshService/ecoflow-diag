@@ -105,6 +105,11 @@ class Prefs(context: Context) {
 
     fun loadCapTest(sn: String): String? = sp.getString("capTest_$sn", null)
 
+    /** Чи сховав користувач демо-станцію зі списку. */
+    var demoHidden: Boolean
+        get() = sp.getBoolean("demoHidden", false)
+        set(v) = sp.edit().putBoolean("demoHidden", v).apply()
+
     /** Остання версія, про яку вже показали сповіщення (щоб не повторювати). */
     var lastNotifiedVersion: String
         get() = sp.getString("lastNotifiedVersion", "") ?: ""

@@ -5,7 +5,7 @@ import java.net.HttpURLConnection
 import java.net.URI
 
 /** Поточна версія застосунку (тримати в синхроні з versionName у build.gradle). */
-const val APP_VERSION = "2.6"
+const val APP_VERSION = "2.7"
 
 /**
  * АДРЕСА МАНІФЕСТА ОНОВЛЕННЯ на GitHub.

@@ -160,6 +160,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     private var demoJob: Job? = null
 
+    /** Демо-картку сховано зі списку (зберігається між запусками). */
+    var demoHidden by mutableStateOf(prefs.demoHidden)
+        private set
+
+    fun hideDemo() {
+        demoHidden = true
+        prefs.demoHidden = true
+    }
+
     private val store = QuotaStore()
     private var mqtt: EcoflowMqtt? = null
     private var diagJob: Job? = null
