@@ -78,7 +78,6 @@ fun StationsScreen(vm: AppViewModel) {
     var confirmDelete by remember { mutableStateOf<StationEntry?>(null) }
     var confirmLogout by remember { mutableStateOf(false) }
     var showCoffee by remember { mutableStateOf(false) }
-    var topMenu by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
     Scaffold(
@@ -97,7 +96,6 @@ fun StationsScreen(vm: AppViewModel) {
                     }
                 },
                 actions = {
-                    // Лише оновлення + меню — щоб заголовок не тиснувся й не переносився на вузьких екранах.
                     IconButton(
                         onClick = { if (vm.refreshAllBusy) vm.stopRefreshAll() else vm.refreshAllStations() },
                         enabled = vm.stations.isNotEmpty(),
@@ -108,17 +106,8 @@ fun StationsScreen(vm: AppViewModel) {
                             Icon(Icons.Filled.Refresh, contentDescription = "Оновити всі станції")
                         }
                     }
-                    IconButton(onClick = { topMenu = true }) {
-                        Icon(Icons.Filled.MoreVert, contentDescription = "Меню")
-                    }
-                    DropdownMenu(expanded = topMenu, onDismissRequest = { topMenu = false }) {
-                        DropdownMenuItem(text = { Text("✈ Зв'язок і питання") }, onClick = { topMenu = false; vm.openFeedback() })
-                        DropdownMenuItem(text = { Text("🔎 Ідентифікація та аналоги деталей") }, onClick = { topMenu = false; vm.openParts() })
-                        DropdownMenuItem(text = { Text("🛠 Прошивка станцій") }, onClick = { topMenu = false; vm.openFlash() })
-                        if (donateEnabled()) {
-                            DropdownMenuItem(text = { Text("☕ Підтримати автора") }, onClick = { topMenu = false; showCoffee = true })
-                        }
-                        DropdownMenuItem(text = { Text("↩ Вийти з акаунта") }, onClick = { topMenu = false; confirmLogout = true })
+                    IconButton(onClick = { confirmLogout = true }) {
+                        Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Вийти з акаунта")
                     }
                 },
             )
@@ -131,34 +120,40 @@ fun StationsScreen(vm: AppViewModel) {
             )
         },
     ) { pad ->
-        if (vm.stations.isEmpty()) {
-            Column(
-                Modifier
-                    .fillMaxSize()
-                    .padding(pad)
-                    .padding(32.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text("Поки що немає станцій", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "Додайте станцію за серійним номером. Він є на наклейці станції та в застосунку EcoFlow у налаштуваннях пристрою. " +
-                        "Станцію спершу треба додати в цей акаунт EcoFlow.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(20.dp))
-                DemoCard(onOpen = { vm.openDemo() })
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(pad),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
+        Column(Modifier.fillMaxSize().padding(pad)) {
+            // Видимі плитки швидких дій — усе на виду, без прихованого меню «⋮».
+            QuickActions(
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
+                onDonate = { showCoffee = true },
+                onFeedback = { vm.openFeedback() },
+                onParts = { vm.openParts() },
+                onFlash = { vm.openFlash() },
+            )
+            if (vm.stations.isEmpty()) {
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 32.dp, vertical = 16.dp),
+                    verticalArrangement = Arrangement.Center,
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text("Поки що немає станцій", style = MaterialTheme.typography.titleMedium)
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        "Додайте станцію за серійним номером. Він є на наклейці станції та в застосунку EcoFlow у налаштуваннях пристрою. " +
+                            "Станцію спершу треба додати в цей акаунт EcoFlow.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(20.dp))
+                    DemoCard(onOpen = { vm.openDemo() })
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
                 vm.availableUpdate?.let { upd ->
                     if (!vm.updateDismissed) {
                         item(key = "update_banner") {
@@ -204,6 +199,7 @@ fun StationsScreen(vm: AppViewModel) {
                     )
                 }
                 item(key = "demo_card") { DemoCard(onOpen = { vm.openDemo() }) }
+                }
             }
         }
     }
@@ -347,6 +343,47 @@ private fun DemoCard(onOpen: () -> Unit) {
                 Text("Торкніться, щоб подивитись можливості: здоров'я, цикли, коди й пояснення, монітор заряду/розряду — на несправжніх даних.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
             }
+        }
+    }
+}
+
+@Composable
+private fun QuickActions(
+    modifier: Modifier = Modifier,
+    onDonate: () -> Unit,
+    onFeedback: () -> Unit,
+    onParts: () -> Unit,
+    onFlash: () -> Unit,
+) {
+    Row(modifier = modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (donateEnabled()) {
+            QuickTile("☕", "Підтримати", Modifier.weight(1f), onDonate)
+        }
+        QuickTile("✈", "Зв'язок", Modifier.weight(1f), onFeedback)
+        QuickTile("🔎", "Деталі", Modifier.weight(1f), onParts)
+        QuickTile("🛠", "Прошивка", Modifier.weight(1f), onFlash)
+    }
+}
+
+@Composable
+private fun QuickTile(emoji: String, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Card(
+        modifier = modifier.clickable(onClick = onClick),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+    ) {
+        Column(
+            Modifier.fillMaxWidth().padding(vertical = 12.dp, horizontal = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(emoji, style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                label,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+            )
         }
     }
 }
