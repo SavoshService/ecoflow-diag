@@ -129,6 +129,22 @@ fun StationsScreen(vm: AppViewModel) {
                 onParts = { vm.openParts() },
                 onFlash = { vm.openFlash() },
             )
+            // Банер оновлення — завжди видимий (навіть коли ще немає станцій).
+            vm.availableUpdate?.let { upd ->
+                if (!vm.updateDismissed) {
+                    UpdateBanner(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        version = upd.version,
+                        notes = upd.notes,
+                        downloading = vm.updateDownloading,
+                        progress = vm.updateProgress,
+                        error = vm.updateError,
+                        onUpdate = { vm.startUpdate(context) },
+                        onBrowser = { openUrl(context, upd.url) },
+                        onDismiss = { vm.dismissUpdate() },
+                    )
+                }
+            }
             if (vm.stations.isEmpty()) {
                 Column(
                     Modifier
@@ -154,22 +170,6 @@ fun StationsScreen(vm: AppViewModel) {
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                vm.availableUpdate?.let { upd ->
-                    if (!vm.updateDismissed) {
-                        item(key = "update_banner") {
-                            UpdateBanner(
-                                version = upd.version,
-                                notes = upd.notes,
-                                downloading = vm.updateDownloading,
-                                progress = vm.updateProgress,
-                                error = vm.updateError,
-                                onUpdate = { vm.startUpdate(context) },
-                                onBrowser = { openUrl(context, upd.url) },
-                                onDismiss = { vm.dismissUpdate() },
-                            )
-                        }
-                    }
-                }
                 if (vm.refreshAllBusy || vm.refreshAllStatus.isNotBlank()) {
                     item(key = "refresh_status") {
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp)) {
@@ -398,9 +398,10 @@ private fun UpdateBanner(
     onUpdate: () -> Unit,
     onBrowser: () -> Unit,
     onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
     ) {

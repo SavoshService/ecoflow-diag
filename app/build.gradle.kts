@@ -12,8 +12,8 @@ android {
         applicationId = "ua.savosh.ecoflowdiag"
         minSdk = 26
         targetSdk = 35
-        versionCode = 16
-        versionName = "2.5"
+        versionCode = 17
+        versionName = "2.6"
     }
 
     // Постійний ключ підпису: нові збірки встановлюються поверх старих без видалення застосунку.
