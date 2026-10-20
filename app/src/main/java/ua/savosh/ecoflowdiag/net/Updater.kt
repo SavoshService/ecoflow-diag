@@ -18,7 +18,7 @@ const val APP_VERSION = "2.4"
  * застосунок оновлень не перевіряє (вважається ненастроєним).
  */
 // Один публічний репозиторій: CI збирає APK і публікує його в релізи цього ж репозиторію.
-const val UPDATE_MANIFEST_URL = "https://github.com/SavoshService/ecoflow-diag-releases/releases/download/latest/latest.json"
+const val UPDATE_MANIFEST_URL = "https://github.com/SavoshService/ecoflow-diag/releases/download/latest/latest.json"
 
 class UpdateInfo(val version: String, val url: String, val notes: String)
 

@@ -33,7 +33,7 @@ jobs:
           fi
           printf '%s' "$KEYSTORE_B64" | base64 -d > app/savosh.keystore
           if ! keytool -list -keystore app/savosh.keystore -storepass "$KEYSTORE_PASSWORD" -alias "${KEY_ALIAS:-savosh}" >/dev/null 2>&1; then
-            echo "::error::Decoded keystore invalid."
+            echo "::error::Decoded keystore invalid: key or password/alias mismatch."
             exit 1
           fi
           echo "Keystore OK"
@@ -57,28 +57,24 @@ jobs:
       - name: Generate latest.json
         run: |
           VER=$(grep -m1 versionName app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
-          REL="SavoshService/ecoflow-diag-releases"
+          REPO="${{ github.repository }}"
           cat > out/latest.json <<EOF
           {
             "version": "$VER",
-            "url": "https://github.com/$REL/releases/download/latest/savosh-ecoflow-diag.apk",
+            "url": "https://github.com/$REPO/releases/download/latest/savosh-ecoflow-diag.apk",
             "notes": "Version $VER"
           }
           EOF
           cat out/latest.json
 
-      - name: Publish to PUBLIC releases repo (gh CLI)
-        env:
-          GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
-        run: |
-          if [ -z "$GH_TOKEN" ]; then
-            echo "::error::No RELEASES_TOKEN secret"
-            exit 1
-          fi
-          REL="SavoshService/ecoflow-diag-releases"
-          gh release delete latest --repo "$REL" --yes --cleanup-tag 2>/dev/null || true
-          gh release create latest out/savosh-ecoflow-diag.apk out/latest.json \
-            --repo "$REL" \
-            --title "EcoFlow Diagnostics - latest build" \
-            --notes "Latest build. Download savosh-ecoflow-diag.apk and install." \
-            --latest
+      - name: Publish to this repo's "latest" release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: EcoFlow Diagnostics - latest build
+          body: "Latest build. Download savosh-ecoflow-diag.apk and install."
+          prerelease: false
+          make_latest: true
+          files: |
+            out/savosh-ecoflow-diag.apk
+            out/latest.json
