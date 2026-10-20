@@ -1,0 +1,16 @@
+.gradle/
+build/
+app/build/
+local.properties
+.idea/
+*.iml
+.DS_Store
+captures/
+
+# Ключ підпису і паролі — ніколи не комітити (лежать у GitHub Secrets / локально)
+*.keystore
+*.jks
+keystore.properties
+signing.properties
+keystore_base64.txt
+*.b64

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Звідси FileProvider віддає завантажений update.apk системному інсталятору -->
+    <external-cache-path name="update" path="." />
+    <cache-path name="cache" path="." />
+</paths>

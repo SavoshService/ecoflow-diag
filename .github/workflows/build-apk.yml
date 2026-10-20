@@ -1,0 +1,80 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Restore keystore from secret
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::error::No KEYSTORE_B64 secret."
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE_B64" | base64 -d > app/savosh.keystore
+          if ! keytool -list -keystore app/savosh.keystore -storepass "$KEYSTORE_PASSWORD" -alias "${KEY_ALIAS:-savosh}" >/dev/null 2>&1; then
+            echo "::error::Decoded keystore invalid: key or password/alias mismatch."
+            exit 1
+          fi
+          echo "Keystore OK"
+
+      - name: Build release APK
+        env:
+          KEYSTORE_FILE: savosh.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleRelease
+          mkdir -p out
+          cp app/build/outputs/apk/release/app-release.apk out/savosh-ecoflow-diag.apk
+
+      - name: Remove keystore
+        if: always()
+        run: rm -f app/savosh.keystore
+
+      - name: Generate latest.json
+        run: |
+          VER=$(grep -m1 versionName app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
+          REPO="${{ github.repository }}"
+          cat > out/latest.json <<EOF
+          {
+            "version": "$VER",
+            "url": "https://github.com/$REPO/releases/download/latest/savosh-ecoflow-diag.apk",
+            "notes": "Version $VER"
+          }
+          EOF
+          cat out/latest.json
+
+      - name: Publish to this repo's "latest" release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: EcoFlow Diagnostics - latest build
+          body: "Latest build. Download savosh-ecoflow-diag.apk and install."
+          prerelease: false
+          make_latest: true
+          files: |
+            out/savosh-ecoflow-diag.apk
+            out/latest.json

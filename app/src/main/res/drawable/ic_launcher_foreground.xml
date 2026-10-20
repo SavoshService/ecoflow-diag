@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Батарея з кардіограмою: "здоров'я батареї". Безпечна зона 66dp у центрі полотна 108dp. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- корпус -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFB020"
+        android:strokeWidth="4"
+        android:strokeLineJoin="round"
+        android:pathData="M30,38 L74,38 Q78,38 78,42 L78,66 Q78,70 74,70 L30,70 Q26,70 26,66 L26,42 Q26,38 30,38 Z" />
+    <!-- клема -->
+    <path
+        android:fillColor="#FFB020"
+        android:pathData="M80,47 L84,47 Q85,47 85,48 L85,60 Q85,61 84,61 L80,61 Z" />
+    <!-- кардіограма -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#2FB36A"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M32,55 L42,55 L46,46 L52,63 L57,50 L60,55 L72,55" />
+</vector>
