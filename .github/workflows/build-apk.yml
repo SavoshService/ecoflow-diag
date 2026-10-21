@@ -4,6 +4,11 @@ on:
   push:
     branches: [ main, master ]
   workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Опублікувати людям (у реліз latest)? Інакше лише тестова збірка.'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -20,6 +25,27 @@ jobs:
           java-version: '17'
 
       - uses: gradle/actions/setup-gradle@v4
+
+      # Визначаємо, чи це РЕЛІЗ для людей:
+      #  • push із словом [release] у повідомленні коміту, або
+      #  • ручний запуск Actions із publish=true.
+      # Усі інші збірки — ТЕСТОВІ: йдуть у реліз "test", людям не показуються.
+      - name: Decide release vs test
+        id: mode
+        run: |
+          RELEASE=false
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.publish }}" = "true" ]; then
+            RELEASE=true
+          fi
+          if printf '%s' "${{ github.event.head_commit.message }}" | grep -q '\[release\]'; then
+            RELEASE=true
+          fi
+          echo "release=$RELEASE" >> "$GITHUB_OUTPUT"
+          if [ "$RELEASE" = "true" ]; then
+            echo "Режим: РЕЛІЗ — збірка піде людям у latest."
+          else
+            echo "Режим: ТЕСТ — збірка піде лише в реліз test (людям не йде)."
+          fi
 
       - name: Restore keystore from secret
         env:
@@ -54,25 +80,53 @@ jobs:
         if: always()
         run: rm -f app/savosh.keystore
 
-      - name: Generate latest.json
+      - name: Read version
+        id: ver
         run: |
           VER=$(grep -m1 versionName app/build.gradle.kts | sed 's/.*"\(.*\)".*/\1/')
+          echo "ver=$VER" >> "$GITHUB_OUTPUT"
+
+      # APK також зберігаємо як артефакт запуску (запасний варіант завантаження).
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: savosh-ecoflow-diag-${{ steps.ver.outputs.ver }}
+          path: out/savosh-ecoflow-diag.apk
+
+      # ---------- ТЕСТОВА збірка: окремий реліз "test" (prerelease, людям не йде) ----------
+      - name: Publish TEST build
+        if: steps.mode.outputs.release != 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: test
+          name: TEST build (not for users)
+          body: "Test build v${{ steps.ver.outputs.ver }}. Install manually to verify. Users are NOT notified. To release to users, push a commit whose message contains [release]."
+          prerelease: true
+          make_latest: false
+          files: |
+            out/savosh-ecoflow-diag.apk
+
+      # ---------- РЕЛІЗ людям: реліз "latest" + latest.json (запускає оновлення) ----------
+      - name: Generate latest.json
+        if: steps.mode.outputs.release == 'true'
+        run: |
           REPO="${{ github.repository }}"
           cat > out/latest.json <<EOF
           {
-            "version": "$VER",
+            "version": "${{ steps.ver.outputs.ver }}",
             "url": "https://github.com/$REPO/releases/download/latest/savosh-ecoflow-diag.apk",
-            "notes": "Version $VER"
+            "notes": "Version ${{ steps.ver.outputs.ver }}"
           }
           EOF
           cat out/latest.json
 
-      - name: Publish to this repo's "latest" release
+      - name: Publish to users (latest)
+        if: steps.mode.outputs.release == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: latest
           name: EcoFlow Diagnostics - latest build
-          body: "Latest build. Download savosh-ecoflow-diag.apk and install."
+          body: "Latest build v${{ steps.ver.outputs.ver }}. Download savosh-ecoflow-diag.apk and install."
           prerelease: false
           make_latest: true
           files: |

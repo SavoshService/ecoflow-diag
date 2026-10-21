@@ -27,6 +27,8 @@ import ua.savosh.ecoflowdiag.core.Gen3Decoder
 import ua.savosh.ecoflowdiag.core.Generation
 import ua.savosh.ecoflowdiag.core.MessageDecoder
 import ua.savosh.ecoflowdiag.core.Models
+import ua.savosh.ecoflowdiag.core.Order
+import ua.savosh.ecoflowdiag.core.PartItem
 import ua.savosh.ecoflowdiag.core.QuotaStore
 import ua.savosh.ecoflowdiag.core.Report
 import ua.savosh.ecoflowdiag.core.StationReport
@@ -49,7 +51,7 @@ import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.random.Random
 
-enum class Screen { LOGIN, STATIONS, DIAG, RAW, LOG, FLASH, CAPTEST, CONTROL, FEEDBACK, PARTS, STATIONINFO }
+enum class Screen { LOGIN, STATIONS, DIAG, RAW, LOG, FLASH, CAPTEST, CONTROL, FEEDBACK, PARTS, STATIONINFO, CRM }
 
 class LogLine(val time: String, val text: String)
 
@@ -160,6 +162,210 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     private var demoJob: Job? = null
 
+    /** Демо-картку сховано зі списку (зберігається між запусками). */
+    var demoHidden by mutableStateOf(prefs.demoHidden)
+        private set
+
+    fun hideDemo() {
+        demoHidden = true
+        prefs.demoHidden = true
+    }
+
+    // ---------------- Майстерня (CRM замовлень)
+    val orders = mutableStateListOf<Order>()
+
+    /** SN/ID замовлення, відкритого на редагування (null — нове). */
+    var editingOrderId by mutableStateOf<Long?>(null)
+        private set
+
+    fun openCrm() {
+        screen = Screen.CRM
+    }
+
+    /** Активні замовлення (не в корзині), новіші першими. */
+    fun activeOrders(): List<Order> = orders.filter { !it.deleted }.sortedByDescending { it.updatedAt }
+
+    /** Замовлення в корзині. */
+    fun trashedOrders(): List<Order> = orders.filter { it.deleted }.sortedByDescending { it.deletedAt ?: it.updatedAt }
+
+    fun orderById(id: Long?): Order? = id?.let { orders.firstOrNull { o -> o.id == it } }
+
+    fun beginNewOrder() { editingOrderId = null }
+    fun beginEditOrder(id: Long) { editingOrderId = id }
+
+    /**
+     * Створити або оновити замовлення. Якщо [id] == null — нове (отримує номер).
+     * Повертає id збереженого замовлення.
+     */
+    fun saveOrder(
+        id: Long?,
+        deviceType: String,
+        model: String,
+        clientName: String,
+        phone: String,
+        channel: String,
+        description: String,
+        status: String,
+        partsCost: Double,
+        totalCost: Double,
+    ): Long {
+        val now = System.currentTimeMillis()
+        val name = clientName.trim().ifBlank { "Невідомо" }
+        if (id == null) {
+            val newId = prefs.nextOrderId
+            prefs.nextOrderId = newId + 1
+            val o = Order(
+                id = newId, createdAt = now, updatedAt = now,
+                completedAt = if (status == "green") now else null,
+                deviceType = deviceType.trim(), model = model.trim(), clientName = name,
+                phone = phone.trim(), channel = channel, description = description.trim(),
+                status = status, partsCost = partsCost, totalCost = totalCost,
+            )
+            orders.add(o)
+            persistOrders()
+            return newId
+        } else {
+            val i = orders.indexOfFirst { it.id == id }
+            if (i < 0) return id
+            val old = orders[i]
+            val completedAt = when {
+                status == "green" && old.status != "green" -> now
+                status != "green" -> null
+                else -> old.completedAt ?: now
+            }
+            orders[i] = old.copy(
+                updatedAt = now, completedAt = completedAt,
+                deviceType = deviceType.trim(), model = model.trim(), clientName = name,
+                phone = phone.trim(), channel = channel, description = description.trim(),
+                status = status, partsCost = partsCost, totalCost = totalCost,
+            )
+            persistOrders()
+            return id
+        }
+    }
+
+    /** Швидка зміна статусу прямо зі списку. */
+    fun setOrderStatus(id: Long, status: String) {
+        val i = orders.indexOfFirst { it.id == id }
+        if (i < 0) return
+        val now = System.currentTimeMillis()
+        val old = orders[i]
+        val completedAt = when {
+            status == "green" && old.status != "green" -> now
+            status != "green" -> null
+            else -> old.completedAt ?: now
+        }
+        orders[i] = old.copy(status = status, completedAt = completedAt, updatedAt = now)
+        persistOrders()
+    }
+
+    /** У корзину (м'яке видалення). */
+    fun trashOrder(id: Long) {
+        val i = orders.indexOfFirst { it.id == id }
+        if (i < 0) return
+        orders[i] = orders[i].copy(deleted = true, deletedAt = System.currentTimeMillis())
+        persistOrders()
+    }
+
+    /** Відновити з корзини. */
+    fun restoreOrder(id: Long) {
+        val i = orders.indexOfFirst { it.id == id }
+        if (i < 0) return
+        orders[i] = orders[i].copy(deleted = false, deletedAt = null, updatedAt = System.currentTimeMillis())
+        persistOrders()
+    }
+
+    /** Остаточно видалити одне замовлення. */
+    fun deleteOrderForever(id: Long) {
+        orders.removeAll { it.id == id }
+        persistOrders()
+    }
+
+    /** Очистити всю корзину. */
+    fun emptyTrash() {
+        orders.removeAll { it.deleted }
+        persistOrders()
+    }
+
+    private fun persistOrders() {
+        prefs.saveOrders(orders.toList())
+    }
+
+    // ---------------- налаштування бухгалтерії
+    var reservePercent by mutableStateOf(prefs.reservePercent)
+        private set
+    var simpleAccounting by mutableStateOf(prefs.simpleAccounting)
+        private set
+
+    fun updateReservePercent(v: Double) {
+        val p = v.coerceIn(0.0, 100.0)
+        reservePercent = p
+        prefs.reservePercent = p
+    }
+
+    fun updateSimpleAccounting(v: Boolean) {
+        simpleAccounting = v
+        prefs.simpleAccounting = v
+    }
+
+    // ---------------- склад деталей
+    val parts = mutableStateListOf<PartItem>()
+
+    fun partsSorted(query: String = ""): List<PartItem> {
+        val q = query.trim().lowercase()
+        val base = parts.sortedBy { it.name.lowercase() }
+        if (q.isEmpty()) return base
+        return base.filter {
+            it.name.lowercase().contains(q) || it.location.lowercase().contains(q) ||
+                it.code.lowercase().contains(q) || it.note.lowercase().contains(q)
+        }
+    }
+
+    fun partById(id: Long?): PartItem? = id?.let { parts.firstOrNull { p -> p.id == it } }
+
+    fun savePart(
+        id: Long?,
+        name: String,
+        quantity: Int,
+        location: String,
+        code: String,
+        note: String,
+        price: Double,
+    ): Long {
+        val now = System.currentTimeMillis()
+        val nm = name.trim().ifBlank { "Деталь" }
+        if (id == null) {
+            val newId = prefs.nextPartId
+            prefs.nextPartId = newId + 1
+            parts.add(
+                PartItem(newId, now, now, nm, quantity.coerceAtLeast(0), location.trim(), code.trim(), note.trim(), price),
+            )
+            prefs.saveParts(parts.toList())
+            return newId
+        }
+        val i = parts.indexOfFirst { it.id == id }
+        if (i < 0) return id
+        parts[i] = parts[i].copy(
+            updatedAt = now, name = nm, quantity = quantity.coerceAtLeast(0),
+            location = location.trim(), code = code.trim(), note = note.trim(), price = price,
+        )
+        prefs.saveParts(parts.toList())
+        return id
+    }
+
+    /** Швидка зміна кількості на складі (+1 / −1). */
+    fun bumpPartQty(id: Long, delta: Int) {
+        val i = parts.indexOfFirst { it.id == id }
+        if (i < 0) return
+        parts[i] = parts[i].copy(quantity = (parts[i].quantity + delta).coerceAtLeast(0), updatedAt = System.currentTimeMillis())
+        prefs.saveParts(parts.toList())
+    }
+
+    fun deletePart(id: Long) {
+        parts.removeAll { it.id == id }
+        prefs.saveParts(parts.toList())
+    }
+
     private val store = QuotaStore()
     private var mqtt: EcoflowMqtt? = null
     private var diagJob: Job? = null
@@ -171,6 +377,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         stations.addAll(prefs.loadStations())
+        orders.addAll(prefs.loadOrders())
+        parts.addAll(prefs.loadParts())
         viewModelScope.launch {
             val upd = withContext(Dispatchers.IO) { Updater.check() }
             if (upd != null) availableUpdate = upd
@@ -946,7 +1154,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             screen = Screen.STATIONS
             true
         }
-        Screen.FEEDBACK, Screen.PARTS, Screen.STATIONINFO -> {
+        Screen.FEEDBACK, Screen.PARTS, Screen.STATIONINFO, Screen.CRM -> {
             screen = Screen.STATIONS
             true
         }

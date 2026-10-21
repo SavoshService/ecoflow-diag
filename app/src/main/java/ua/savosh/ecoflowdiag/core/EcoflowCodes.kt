@@ -62,6 +62,15 @@ object EcoflowCodes {
     /** Чи є для цього коду пояснення, яке варто показати кнопкою. */
     fun hasExplanation(codeKey: String?): Boolean = forKey(codeKey) != null
 
+    /** Doc ЛИШЕ для задокументованого (вивченого) коду BMS; для невідомих — null. */
+    fun documented(codeKey: String?): Doc? {
+        val key = codeKey ?: return null
+        val parts = key.split(":")
+        if (parts.size != 2) return null
+        val value = parts[1].toLongOrNull() ?: return null
+        return if (parts[0] == "bms") BMS[value] else null
+    }
+
     private fun unknownBms(value: Long): Doc = Doc(
         title = "Код $value — не задокументований",
         short = "EcoFlow не публікує значення кодів BMS; цей код ще не вивчено.",

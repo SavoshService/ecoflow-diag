@@ -38,7 +38,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.activity.compose.rememberLauncherForActivityResult
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -129,6 +134,29 @@ fun StationsScreen(vm: AppViewModel) {
                 onParts = { vm.openParts() },
                 onFlash = { vm.openFlash() },
             )
+            // Вхід у «Майстерню» (CRM замовлень) — на видноті, окремою широкою карткою.
+            WorkshopEntry(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                activeCount = vm.activeOrders().size,
+                inWorkCount = vm.activeOrders().count { it.status != "green" },
+                onOpen = { vm.openCrm() },
+            )
+            // Банер оновлення — завжди видимий (навіть коли ще немає станцій).
+            vm.availableUpdate?.let { upd ->
+                if (!vm.updateDismissed) {
+                    UpdateBanner(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        version = upd.version,
+                        notes = upd.notes,
+                        downloading = vm.updateDownloading,
+                        progress = vm.updateProgress,
+                        error = vm.updateError,
+                        onUpdate = { vm.startUpdate(context) },
+                        onBrowser = { openUrl(context, upd.url) },
+                        onDismiss = { vm.dismissUpdate() },
+                    )
+                }
+            }
             if (vm.stations.isEmpty()) {
                 Column(
                     Modifier
@@ -154,22 +182,6 @@ fun StationsScreen(vm: AppViewModel) {
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                vm.availableUpdate?.let { upd ->
-                    if (!vm.updateDismissed) {
-                        item(key = "update_banner") {
-                            UpdateBanner(
-                                version = upd.version,
-                                notes = upd.notes,
-                                downloading = vm.updateDownloading,
-                                progress = vm.updateProgress,
-                                error = vm.updateError,
-                                onUpdate = { vm.startUpdate(context) },
-                                onBrowser = { openUrl(context, upd.url) },
-                                onDismiss = { vm.dismissUpdate() },
-                            )
-                        }
-                    }
-                }
                 if (vm.refreshAllBusy || vm.refreshAllStatus.isNotBlank()) {
                     item(key = "refresh_status") {
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp)) {
@@ -198,7 +210,9 @@ fun StationsScreen(vm: AppViewModel) {
                         onDelete = { confirmDelete = st },
                     )
                 }
-                item(key = "demo_card") { DemoCard(onOpen = { vm.openDemo() }) }
+                if (!vm.demoHidden) {
+                    item(key = "demo_card") { DemoCard(onOpen = { vm.openDemo() }, onDismiss = { vm.hideDemo() }) }
+                }
                 }
             }
         }
@@ -322,7 +336,7 @@ private fun OnlineDot(online: Boolean?) {
 
 /** Демо-станція: пульсуюча картка «спробувати програму на несправжніх даних». */
 @Composable
-private fun DemoCard(onOpen: () -> Unit) {
+private fun DemoCard(onOpen: () -> Unit, onDismiss: (() -> Unit)? = null) {
     var pulse by remember { mutableFloatStateOf(0f) }
     LaunchedEffect(Unit) {
         while (true) { pulse += 0.06f; kotlinx.coroutines.delay(33) }
@@ -333,7 +347,10 @@ private fun DemoCard(onOpen: () -> Unit) {
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
     ) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier.padding(start = 16.dp, top = 10.dp, bottom = 10.dp, end = if (onDismiss != null) 4.dp else 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Box(Modifier.size(44.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = glow)), contentAlignment = Alignment.Center) {
                 Text("🧪", fontSize = 22.sp)
             }
@@ -342,6 +359,11 @@ private fun DemoCard(onOpen: () -> Unit) {
                 Text("Демо станція", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSecondaryContainer)
                 Text("Торкніться, щоб подивитись можливості: здоров'я, цикли, коди й пояснення, монітор заряду/розряду — на несправжніх даних.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
+            }
+            if (onDismiss != null) {
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Filled.Close, contentDescription = "Сховати демо", tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                }
             }
         }
     }
@@ -360,13 +382,51 @@ private fun QuickActions(
             QuickTile("☕", "Підтримати", Modifier.weight(1f), onDonate)
         }
         QuickTile("✈", "Зв'язок", Modifier.weight(1f), onFeedback)
-        QuickTile("🔎", "Деталі", Modifier.weight(1f), onParts)
-        QuickTile("🛠", "Прошивка", Modifier.weight(1f), onFlash)
+        QuickTile(label = "Деталі", modifier = Modifier.weight(1f), onClick = onParts) { SpinningChip(sizeDp = 30) }
+        QuickTile(label = "Прошивка", modifier = Modifier.weight(1f), onClick = onFlash) { BinaryRain(cols = 5, rows = 3, fontSizeSp = 8) }
+    }
+}
+
+/** Широка картка-вхід у Майстерню: замовлення на ремонт і бухгалтерія. */
+@Composable
+private fun WorkshopEntry(
+    modifier: Modifier = Modifier,
+    activeCount: Int,
+    inWorkCount: Int,
+    onOpen: () -> Unit,
+) {
+    Card(
+        modifier = modifier.fillMaxWidth().clickable(onClick = onOpen),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("🧰", style = MaterialTheme.typography.headlineSmall)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    "Майстерня",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+                Text(
+                    if (activeCount == 0) "Замовлення на ремонт і бухгалтерія"
+                    else "Активних: $activeCount · у роботі: $inWorkCount",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
+                )
+            }
+            Text("→", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
+        }
     }
 }
 
 @Composable
-private fun QuickTile(emoji: String, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun QuickTile(label: String, modifier: Modifier = Modifier, onClick: () -> Unit, icon: @Composable () -> Unit) {
     Card(
         modifier = modifier.clickable(onClick = onClick),
         shape = RoundedCornerShape(14.dp),
@@ -376,7 +436,7 @@ private fun QuickTile(emoji: String, label: String, modifier: Modifier = Modifie
             Modifier.fillMaxWidth().padding(vertical = 12.dp, horizontal = 4.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(emoji, style = MaterialTheme.typography.titleLarge)
+            Box(Modifier.height(32.dp), contentAlignment = Alignment.Center) { icon() }
             Spacer(Modifier.height(4.dp))
             Text(
                 label,
@@ -385,6 +445,13 @@ private fun QuickTile(emoji: String, label: String, modifier: Modifier = Modifie
                 maxLines = 1,
             )
         }
+    }
+}
+
+@Composable
+private fun QuickTile(emoji: String, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    QuickTile(label = label, modifier = modifier, onClick = onClick) {
+        Text(emoji, style = MaterialTheme.typography.titleLarge)
     }
 }
 
@@ -398,9 +465,10 @@ private fun UpdateBanner(
     onUpdate: () -> Unit,
     onBrowser: () -> Unit,
     onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
     ) {
@@ -445,6 +513,10 @@ private fun AddStationDialog(onDismiss: () -> Unit, onAdd: (String, String) -> S
     var sn by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
+    var showHelp by remember { mutableStateOf(false) }
+    val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
+        result.contents?.let { sn = it.trim().uppercase(); error = null }
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Нова станція") },
@@ -458,6 +530,27 @@ private fun AddStationDialog(onDismiss: () -> Unit, onAdd: (String, String) -> S
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
                     modifier = Modifier.fillMaxWidth(),
                 )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = {
+                            scanLauncher.launch(
+                                ScanOptions()
+                                    .setPrompt("Наведіть на штрих-код / QR серійного номера станції")
+                                    .setBeepEnabled(true)
+                                    .setOrientationLocked(false),
+                            )
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) { Text("📷 Сканувати") }
+                    OutlinedButton(onClick = { showHelp = !showHelp }, modifier = Modifier.weight(1f)) {
+                        Text(if (showHelp) "Сховати" else "📖 Інструкція")
+                    }
+                }
+                if (showHelp) {
+                    Spacer(Modifier.height(8.dp))
+                    AddStationHelp()
+                }
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = note,
@@ -474,6 +567,28 @@ private fun AddStationDialog(onDismiss: () -> Unit, onAdd: (String, String) -> S
         confirmButton = { TextButton(onClick = { error = onAdd(sn, note) }) { Text("Додати") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Скасувати") } },
     )
+}
+
+@Composable
+private fun AddStationHelp() {
+    Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+        Column(Modifier.padding(12.dp)) {
+            Text("Як дізнатися серійний номер", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+            Spacer(Modifier.height(6.dp))
+            HelpStep("1", "Спочатку додайте станцію в офіційний застосунок EcoFlow — тим самим акаунтом, що й тут.")
+            HelpStep("2", "У EcoFlow відкрийте станцію → Налаштування → Технічні характеристики.")
+            HelpStep("3", "Натисніть і утримуйте серійний номер угорі, поки він не виділиться і не з'явиться «Копіювати» — скопіюйте.")
+            HelpStep("4", "Поверніться сюди і вставте SN у поле вище. Або просто відскануйте штрих-код чи QR на самій станції кнопкою «Сканувати».")
+        }
+    }
+}
+
+@Composable
+private fun HelpStep(n: String, text: String) {
+    Row(Modifier.padding(vertical = 2.dp)) {
+        Text("$n. ", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+        Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
 }
 
 @Composable

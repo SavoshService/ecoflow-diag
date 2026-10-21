@@ -81,5 +81,6 @@ private fun App(vm: AppViewModel) {
         Screen.FEEDBACK -> FeedbackScreen(vm)
         Screen.PARTS -> PartsScreen(vm)
         Screen.STATIONINFO -> StationInfoScreen(vm)
+        Screen.CRM -> CrmScreen(vm)
     }
 }

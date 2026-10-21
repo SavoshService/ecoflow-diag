@@ -22,7 +22,7 @@ enum class Chemistry(val title: String, val short: String, val nominalCellV: Dou
 }
 
 /** Висновок. [short] — коротке формулювання для заголовка батареї, якщо саме воно визначає статус. */
-class Finding(val level: Level, val text: String, val short: String? = null)
+class Finding(val level: Level, val text: String, val short: String? = null, val codeInfo: Boolean = false)
 
 /**
  * Рядок «показник — значення — пояснення».
@@ -526,10 +526,17 @@ object Analyzer {
 
         val driver = findings.filter { it.short != null && it.level == level && it.level.rank > capLevel.rank }
             .firstOrNull()
-        val verdict = when {
+        val baseVerdict = when {
             driver == null -> capVerdict
             capLevel == Level.UNKNOWN -> driver.short!!.replaceFirstChar { it.uppercase() }
             else -> "$capVerdict, але ${driver.short}"
+        }
+        // Пояснення вивченого коду (напр. 23) показуємо завжди — як нейтральну примітку, без «Увага».
+        val codeInfo = findings.firstOrNull { it.codeInfo && it.short != null }
+        val verdict = if (codeInfo != null && codeInfo !== driver && !baseVerdict.contains(codeInfo.short!!)) {
+            "$baseVerdict · ${codeInfo.short}"
+        } else {
+            baseVerdict
         }
 
         val sn = s.str("packSn") ?: s.str("bmsSn")
@@ -621,6 +628,8 @@ object Analyzer {
         val allErr = s.lng("allErrCode")
         val allBits = allErr?.let { setBits(it) } ?: emptyList()
         val userNote = errCode?.takeIf { it != 0L }?.let { ctx.codeNotes["bms:$it"] }
+        // Вивчений (задокументований) код — напр. 23 (норма), 6 (дисбаланс). Для них беремо наш рівень і пояснення.
+        val knownDoc = errCode?.takeIf { it != 0L }?.let { EcoflowCodes.documented("bms:$it") }
         if (errCode != null) {
             out.add(
                 if (errCode == 0L) {
@@ -629,8 +638,8 @@ object Analyzer {
                     Indicator(
                         "Код помилки BMS (errCode)",
                         "$errCode",
-                        Level.WARN,
-                        userNote?.let { "Ваша примітка: $it" } ?: "код не задокументований EcoFlow",
+                        knownDoc?.level ?: Level.WARN,
+                        userNote?.let { "Ваша примітка: $it" } ?: knownDoc?.short ?: "код не задокументований EcoFlow",
                         "bms:$errCode",
                     )
                 },
@@ -645,7 +654,7 @@ object Analyzer {
                     Indicator(
                         "Маска помилок (allErrCode)",
                         "$allErr (0x${allErr.toString(16).uppercase()})",
-                        Level.WARN,
+                        if (same) (knownDoc?.level ?: Level.WARN) else Level.WARN,
                         "встановлені біти: ${allBits.joinToString(", ")}" + if (same) " — той самий код, що й errCode" else "",
                     )
                 },
@@ -653,6 +662,7 @@ object Analyzer {
         }
 
         val unknownCode = (errCode ?: 0L) != 0L || (allErr ?: 0L) != 0L
+        val noteTxt = userNote?.let { " Ваша примітка до коду: $it." } ?: ""
         if (hasFault || bqAlarm || protect) {
             findings.add(
                 Finding(
@@ -661,6 +671,9 @@ object Analyzer {
                     "BMS фіксує відмову",
                 ),
             )
+        } else if (knownDoc != null) {
+            // Вивчений код: показуємо пояснення одразу, рівень = рівень коду (23 → «Добре», не «Увага»).
+            findings.add(Finding(knownDoc.level, knownDoc.detail + noteTxt, knownDoc.short, codeInfo = true))
         } else if (unknownCode) {
             val code = if ((errCode ?: 0L) != 0L) "$errCode" else allBits.joinToString(", ")
             val bitsTxt = if (allErr != null && allErr != 0L) " (allErrCode: біт ${allBits.joinToString(", ")})" else ""
@@ -669,7 +682,6 @@ object Analyzer {
             if (bq != null) context.add("аварійних бітів AFE немає")
             if (ctx.iconBmsErr == 0L) context.add("станція сама іконку помилки BMS не показує")
             val ctxTxt = if (context.isNotEmpty()) " Інших ознак проблем немає: ${context.joinToString(", ")}." else ""
-            val noteTxt = userNote?.let { " Ваша примітка до коду: $it." } ?: ""
             findings.add(
                 Finding(
                     Level.WARN,

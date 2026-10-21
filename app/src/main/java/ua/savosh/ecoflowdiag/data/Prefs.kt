@@ -3,6 +3,8 @@ package ua.savosh.ecoflowdiag.data
 import android.content.Context
 import android.content.SharedPreferences
 import ua.savosh.ecoflowdiag.core.Json
+import ua.savosh.ecoflowdiag.core.Order
+import ua.savosh.ecoflowdiag.core.PartItem
 
 /** Збережена станція клієнта. */
 data class StationEntry(
@@ -105,6 +107,11 @@ class Prefs(context: Context) {
 
     fun loadCapTest(sn: String): String? = sp.getString("capTest_$sn", null)
 
+    /** Чи сховав користувач демо-станцію зі списку. */
+    var demoHidden: Boolean
+        get() = sp.getBoolean("demoHidden", false)
+        set(v) = sp.edit().putBoolean("demoHidden", v).apply()
+
     /** Остання версія, про яку вже показали сповіщення (щоб не повторювати). */
     var lastNotifiedVersion: String
         get() = sp.getString("lastNotifiedVersion", "") ?: ""
@@ -137,5 +144,118 @@ class Prefs(context: Context) {
 
     fun saveCodeNotes(notes: Map<String, String>) {
         sp.edit().putString("code_notes", Json.stringify(LinkedHashMap<String, Any?>(notes))).apply()
+    }
+
+    // ======================= Майстерня (CRM) =======================
+
+    /** Наступний номер замовлення (монотонно зростає, не повторюється навіть після видалення). */
+    var nextOrderId: Long
+        get() = sp.getLong("crm_next_id", 1L)
+        set(v) = sp.edit().putLong("crm_next_id", v).apply()
+
+    fun loadOrders(): List<Order> {
+        val text = sp.getString("crm_orders", null) ?: return emptyList()
+        val list = Json.parseOrNull(text) as? List<*> ?: return emptyList()
+        return list.mapNotNull { item ->
+            val m = item as? Map<*, *> ?: return@mapNotNull null
+            val id = (m["id"] as? Number)?.toLong() ?: return@mapNotNull null
+            Order(
+                id = id,
+                createdAt = (m["createdAt"] as? Number)?.toLong() ?: 0L,
+                updatedAt = (m["updatedAt"] as? Number)?.toLong() ?: 0L,
+                completedAt = (m["completedAt"] as? Number)?.toLong(),
+                deviceType = m["deviceType"]?.toString() ?: "",
+                model = m["model"]?.toString() ?: "",
+                clientName = m["clientName"]?.toString() ?: "Невідомо",
+                phone = m["phone"]?.toString() ?: "",
+                channel = m["channel"]?.toString() ?: "call",
+                description = m["description"]?.toString() ?: "",
+                status = m["status"]?.toString() ?: "red",
+                partsCost = (m["partsCost"] as? Number)?.toDouble() ?: 0.0,
+                totalCost = (m["totalCost"] as? Number)?.toDouble() ?: 0.0,
+                deleted = m["deleted"] as? Boolean ?: false,
+                deletedAt = (m["deletedAt"] as? Number)?.toLong(),
+                photos = (m["photos"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList(),
+            )
+        }
+    }
+
+    fun saveOrders(list: List<Order>) {
+        val arr = list.map {
+            linkedMapOf<String, Any?>(
+                "id" to it.id,
+                "createdAt" to it.createdAt,
+                "updatedAt" to it.updatedAt,
+                "completedAt" to it.completedAt,
+                "deviceType" to it.deviceType,
+                "model" to it.model,
+                "clientName" to it.clientName,
+                "phone" to it.phone,
+                "channel" to it.channel,
+                "description" to it.description,
+                "status" to it.status,
+                "partsCost" to it.partsCost,
+                "totalCost" to it.totalCost,
+                "deleted" to it.deleted,
+                "deletedAt" to it.deletedAt,
+                "photos" to it.photos,
+            )
+        }
+        sp.edit().putString("crm_orders", Json.stringify(arr)).apply()
+    }
+
+    // ----- Налаштування бухгалтерії -----
+
+    /** Власний відсоток відрахування (резерв/податок) від чистого прибутку. 0 — вимкнено. */
+    var reservePercent: Double
+        get() = sp.getString("crm_reserve_pct", "0")?.toDoubleOrNull() ?: 0.0
+        set(v) = sp.edit().putString("crm_reserve_pct", v.toString()).apply()
+
+    /** Спрощена бухгалтерія: ховати «Запчастини» й «Оборот», показувати лише чистий прибуток. */
+    var simpleAccounting: Boolean
+        get() = sp.getBoolean("crm_simple_acc", false)
+        set(v) = sp.edit().putBoolean("crm_simple_acc", v).apply()
+
+    // ----- Склад деталей майстерні -----
+
+    var nextPartId: Long
+        get() = sp.getLong("crm_next_part_id", 1L)
+        set(v) = sp.edit().putLong("crm_next_part_id", v).apply()
+
+    fun loadParts(): List<PartItem> {
+        val text = sp.getString("crm_parts", null) ?: return emptyList()
+        val list = Json.parseOrNull(text) as? List<*> ?: return emptyList()
+        return list.mapNotNull { item ->
+            val m = item as? Map<*, *> ?: return@mapNotNull null
+            val id = (m["id"] as? Number)?.toLong() ?: return@mapNotNull null
+            PartItem(
+                id = id,
+                createdAt = (m["createdAt"] as? Number)?.toLong() ?: 0L,
+                updatedAt = (m["updatedAt"] as? Number)?.toLong() ?: 0L,
+                name = m["name"]?.toString() ?: "",
+                quantity = (m["quantity"] as? Number)?.toInt() ?: 0,
+                location = m["location"]?.toString() ?: "",
+                code = m["code"]?.toString() ?: "",
+                note = m["note"]?.toString() ?: "",
+                price = (m["price"] as? Number)?.toDouble() ?: 0.0,
+            )
+        }
+    }
+
+    fun saveParts(list: List<PartItem>) {
+        val arr = list.map {
+            linkedMapOf<String, Any?>(
+                "id" to it.id,
+                "createdAt" to it.createdAt,
+                "updatedAt" to it.updatedAt,
+                "name" to it.name,
+                "quantity" to it.quantity,
+                "location" to it.location,
+                "code" to it.code,
+                "note" to it.note,
+                "price" to it.price,
+            )
+        }
+        sp.edit().putString("crm_parts", Json.stringify(arr)).apply()
     }
 }
