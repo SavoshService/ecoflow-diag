@@ -35,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -72,6 +73,29 @@ fun PartsScreen(vm: AppViewModel) {
 
             SoonBadge()
 
+            SectionCard("Довідник майстра · талмуд") {
+                Text(
+                    "Тут буде талмуд майстра: розшифрування деталей, пояснення й нюанси ремонту станцій — усе в одному місці. " +
+                        "Розділи наповнюються спільнотою:",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(12.dp))
+                ColorButton("📘  Талмуд деталей", Color(0xFF2563EB)) { openTelegram(ctx) }
+                Spacer(Modifier.height(8.dp))
+                ColorButton("🔁  Аналоги pin-to-pin", Color(0xFF16A34A)) { openTelegram(ctx) }
+                Spacer(Modifier.height(8.dp))
+                ColorButton("🧰  Нюанси ремонту станцій", Color(0xFFEA580C)) { openTelegram(ctx) }
+                Spacer(Modifier.height(8.dp))
+                ColorButton("⚡  Типові несправності", Color(0xFF9333EA)) { openTelegram(ctx) }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Поки розділи готуються — кнопки ведуть у Телеграм, де можна спитати, підказати деталь чи аналог.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
             SectionCard("Що буде в довіднику") {
                 Bullet("Розшифрування маркувань мікросхем (напр. «1G6P» → що це)")
                 Bullet("Які деталі стоять у конкретних станціях (Delta 2, Max, River…)")
@@ -102,6 +126,20 @@ fun PartsScreen(vm: AppViewModel) {
             }
         }
     }
+}
+
+/** Яскрава кольорова кнопка, що виділяється на тлі теми застосунку. */
+@Composable
+private fun ColorButton(text: String, color: androidx.compose.ui.graphics.Color, onClick: () -> Unit) {
+    androidx.compose.material3.Button(
+        onClick = onClick,
+        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+            containerColor = color,
+            contentColor = androidx.compose.ui.graphics.Color.White,
+        ),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) { Text(text, fontWeight = FontWeight.SemiBold) }
 }
 
 /** Анімована мікросхема, що повільно обертається. */

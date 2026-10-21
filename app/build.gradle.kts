@@ -12,8 +12,8 @@ android {
         applicationId = "ua.savosh.ecoflowdiag"
         minSdk = 26
         targetSdk = 35
-        versionCode = 19
-        versionName = "2.8"
+        versionCode = 20
+        versionName = "2.9"
     }
 
     // Постійний ключ підпису: нові збірки встановлюються поверх старих без видалення застосунку.
@@ -91,4 +91,7 @@ dependencies {
 
     // MQTT-клієнт для хмари EcoFlow
     implementation("org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.2.5")
+
+    // Сканер штрих-коду / QR серійного номера
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
 }

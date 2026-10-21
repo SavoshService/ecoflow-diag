@@ -87,6 +87,16 @@ fun FlashScreen(vm: AppViewModel) {
                 textAlign = TextAlign.Center,
             )
             Spacer(Modifier.height(20.dp))
+            BinaryRain(cols = 12, rows = 5, fontSizeSp = 14)
+            Spacer(Modifier.height(18.dp))
+            Text(
+                "Готуйте ESP32 + ST-Link V2 — вже скоро",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(20.dp))
             Text(
                 "Savosh Service",
                 style = MaterialTheme.typography.labelMedium,

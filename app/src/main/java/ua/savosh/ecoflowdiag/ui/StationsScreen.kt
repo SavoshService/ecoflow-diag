@@ -38,7 +38,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.activity.compose.rememberLauncherForActivityResult
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -370,13 +375,13 @@ private fun QuickActions(
             QuickTile("☕", "Підтримати", Modifier.weight(1f), onDonate)
         }
         QuickTile("✈", "Зв'язок", Modifier.weight(1f), onFeedback)
-        QuickTile("🔎", "Деталі", Modifier.weight(1f), onParts)
-        QuickTile("🛠", "Прошивка", Modifier.weight(1f), onFlash)
+        QuickTile(label = "Деталі", modifier = Modifier.weight(1f), onClick = onParts) { SpinningChip(sizeDp = 30) }
+        QuickTile(label = "Прошивка", modifier = Modifier.weight(1f), onClick = onFlash) { BinaryRain(cols = 5, rows = 3, fontSizeSp = 8) }
     }
 }
 
 @Composable
-private fun QuickTile(emoji: String, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun QuickTile(label: String, modifier: Modifier = Modifier, onClick: () -> Unit, icon: @Composable () -> Unit) {
     Card(
         modifier = modifier.clickable(onClick = onClick),
         shape = RoundedCornerShape(14.dp),
@@ -386,7 +391,7 @@ private fun QuickTile(emoji: String, label: String, modifier: Modifier = Modifie
             Modifier.fillMaxWidth().padding(vertical = 12.dp, horizontal = 4.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text(emoji, style = MaterialTheme.typography.titleLarge)
+            Box(Modifier.height(32.dp), contentAlignment = Alignment.Center) { icon() }
             Spacer(Modifier.height(4.dp))
             Text(
                 label,
@@ -395,6 +400,13 @@ private fun QuickTile(emoji: String, label: String, modifier: Modifier = Modifie
                 maxLines = 1,
             )
         }
+    }
+}
+
+@Composable
+private fun QuickTile(emoji: String, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    QuickTile(label = label, modifier = modifier, onClick = onClick) {
+        Text(emoji, style = MaterialTheme.typography.titleLarge)
     }
 }
 
@@ -456,6 +468,10 @@ private fun AddStationDialog(onDismiss: () -> Unit, onAdd: (String, String) -> S
     var sn by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
+    var showHelp by remember { mutableStateOf(false) }
+    val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
+        result.contents?.let { sn = it.trim().uppercase(); error = null }
+    }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Нова станція") },
@@ -469,6 +485,27 @@ private fun AddStationDialog(onDismiss: () -> Unit, onAdd: (String, String) -> S
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
                     modifier = Modifier.fillMaxWidth(),
                 )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = {
+                            scanLauncher.launch(
+                                ScanOptions()
+                                    .setPrompt("Наведіть на штрих-код / QR серійного номера станції")
+                                    .setBeepEnabled(true)
+                                    .setOrientationLocked(false),
+                            )
+                        },
+                        modifier = Modifier.weight(1f),
+                    ) { Text("📷 Сканувати") }
+                    OutlinedButton(onClick = { showHelp = !showHelp }, modifier = Modifier.weight(1f)) {
+                        Text(if (showHelp) "Сховати" else "📖 Інструкція")
+                    }
+                }
+                if (showHelp) {
+                    Spacer(Modifier.height(8.dp))
+                    AddStationHelp()
+                }
                 Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = note,
@@ -485,6 +522,28 @@ private fun AddStationDialog(onDismiss: () -> Unit, onAdd: (String, String) -> S
         confirmButton = { TextButton(onClick = { error = onAdd(sn, note) }) { Text("Додати") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Скасувати") } },
     )
+}
+
+@Composable
+private fun AddStationHelp() {
+    Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+        Column(Modifier.padding(12.dp)) {
+            Text("Як дізнатися серійний номер", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+            Spacer(Modifier.height(6.dp))
+            HelpStep("1", "Спочатку додайте станцію в офіційний застосунок EcoFlow — тим самим акаунтом, що й тут.")
+            HelpStep("2", "У EcoFlow відкрийте станцію → Налаштування → Технічні характеристики.")
+            HelpStep("3", "Натисніть і утримуйте серійний номер угорі, поки він не виділиться і не з'явиться «Копіювати» — скопіюйте.")
+            HelpStep("4", "Поверніться сюди і вставте SN у поле вище. Або просто відскануйте штрих-код чи QR на самій станції кнопкою «Сканувати».")
+        }
+    }
+}
+
+@Composable
+private fun HelpStep(n: String, text: String) {
+    Row(Modifier.padding(vertical = 2.dp)) {
+        Text("$n. ", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+        Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
 }
 
 @Composable
