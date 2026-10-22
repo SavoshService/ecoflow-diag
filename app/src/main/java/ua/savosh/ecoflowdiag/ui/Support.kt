@@ -16,6 +16,9 @@ const val DONATE_TEXT = "☕ Підтримати автора"
 /** Телеграм-канал Savosh Service — для зворотного зв'язку й питань. */
 const val TELEGRAM_URL = "https://t.me/savosh_service"
 
+/** Група спільноти майстрів (кнопка «Канал спільноти» в розділі Деталі) — посилання-запрошення. */
+const val COMMUNITY_URL = "https://t.me/+kQgBAgWXnU83MjEy"
+
 fun donateEnabled(): Boolean = DONATE_URL.startsWith("https://")
 
 /** Відкриває будь-яке посилання у браузері / відповідному застосунку. */

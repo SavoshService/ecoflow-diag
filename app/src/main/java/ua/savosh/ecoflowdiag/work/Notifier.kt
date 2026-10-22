@@ -39,4 +39,30 @@ object Notifier {
             .build()
         nm.notify(NOTIF_ID, n)
     }
+
+    private const val REMINDER_CHANNEL = "reminders"
+
+    /** Сповіщення-нагадування по замітці. */
+    fun showReminder(ctx: Context, noteId: Long, title: String) {
+        val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= 26) {
+            nm.createNotificationChannel(
+                NotificationChannel(REMINDER_CHANNEL, "Нагадування", NotificationManager.IMPORTANCE_HIGH),
+            )
+        }
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+            (if (Build.VERSION.SDK_INT >= 23) PendingIntent.FLAG_IMMUTABLE else 0)
+        val open = Intent(ctx, MainActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        }
+        val pi = PendingIntent.getActivity(ctx, noteId.toInt(), open, flags)
+        val n = NotificationCompat.Builder(ctx, REMINDER_CHANNEL)
+            .setSmallIcon(ctx.applicationInfo.icon)
+            .setContentTitle("🔔 Нагадування")
+            .setContentText(title.ifBlank { "Замітка" })
+            .setAutoCancel(true)
+            .setContentIntent(pi)
+            .build()
+        nm.notify(5200 + noteId.toInt(), n)
+    }
 }

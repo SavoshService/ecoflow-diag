@@ -1,0 +1,123 @@
+package ua.savosh.ecoflowdiag.core
+
+/**
+ * Стаття бази знань майстра («талмуд»). Пишеться в самому застосунку, зберігається локально.
+ * [official] = true — прийшла з оновленням (лише читати); false — власна замітка користувача.
+ */
+data class Article(
+    val id: Long,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val section: String = "Загальне",
+    val subsection: String = "",
+    val title: String = "",
+    val marking: String = "",   // маркування деталей
+    val analogs: String = "",   // аналоги
+    val body: String = "",      // текст статті
+    val photos: List<String> = emptyList(), // імена файлів у внутрішньому сховищі
+    val official: Boolean = false,
+    val author: String = "",
+)
+
+/** Випуск застосунку і перелік змін для вікна «Що нового». */
+class Release(val version: String, val changes: List<String>)
+
+object Changelog {
+
+    /** Поточна версія (тримати в синхроні з versionName). */
+    const val CURRENT = "2.16"
+
+    /** Новіші випуски — першими. */
+    val ENTRIES: List<Release> = listOf(
+        Release(
+            "2.16",
+            listOf(
+                "💾 Резервна копія даних: збережи у файл або на Google Диск — не втратиш при перевстановленні",
+                "↩️ Відновлення даних з файлу (застосунок пропонує при чистій інсталяції)",
+                "♻️ Авто-копія оновлюється сама при згортанні застосунку",
+            ),
+        ),
+        Release(
+            "2.15",
+            listOf(
+                "📤 Статті талмуда діляться у спільноту автоматично — без кнопок і зайвих написів",
+                "🖼 Полагоджено надсилання фото зі статей",
+                "🎨 Розділ «Деталі» — зручні плитки: Талмуд, Замітки, Канал",
+            ),
+        ),
+        Release(
+            "2.14",
+            listOf(
+                "🔌 Застосунок відв'язано від входу EcoFlow — майстерня, деталі й замітки працюють і без входу",
+                "📤 У статтю додано кнопку «Надіслати в спільну базу»",
+                "☕ Плитка «КАВА» замість «Підтримати»; помітніша чашка",
+            ),
+        ),
+        Release(
+            "2.13",
+            listOf(
+                "📝 Записник: прості замітки, чеклисти з галочками й замітки до станцій",
+                "🔔 Нагадування по замітках",
+                "🧹 Розділ «Деталі» став чистішим: талмуд, замітки й канал спільноти",
+            ),
+        ),
+        Release(
+            "2.12",
+            listOf(
+                "📖 База знань майстра: статті з фото у стилі старовинного наукового журналу",
+                "🆕 Вікно «Що нового» після оновлення",
+            ),
+        ),
+        Release(
+            "2.11",
+            listOf(
+                "📦 Склад деталей зі сканером QR / штрих-кодів",
+                "⚙ Налаштування бухгалтерії: свій відсоток відрахування та спрощений режим",
+            ),
+        ),
+        Release(
+            "2.10",
+            listOf(
+                "🧰 Майстерня: замовлення на ремонт і бухгалтерія (чистий прибуток окремо від запчастин)",
+            ),
+        ),
+    )
+
+    /** Випуски, новіші за [since] (показуються у «Що нового»). Якщо [since] порожній — лише поточний. */
+    fun newerThan(since: String): List<Release> {
+        if (since.isBlank()) return ENTRIES.filter { it.version == CURRENT }
+        return ENTRIES.filter { isNewer(it.version, since) }
+    }
+
+    fun isNewer(a: String, b: String): Boolean {
+        val x = a.split('.', '-').mapNotNull { it.toIntOrNull() }
+        val y = b.split('.', '-').mapNotNull { it.toIntOrNull() }
+        for (i in 0 until maxOf(x.size, y.size)) {
+            val p = x.getOrElse(i) { 0 }; val q = y.getOrElse(i) { 0 }
+            if (p != q) return p > q
+        }
+        return false
+    }
+}
+
+/** Приклади-статті, що приходять із застосунком (read-only). Показують формат «талмуда». */
+object KnowledgeSeed {
+    val OFFICIAL: List<Article> = listOf(
+        Article(
+            id = -1,
+            createdAt = 0, updatedAt = 0,
+            section = "BMS та захисти",
+            subsection = "Коди помилок",
+            title = "Код 23: вихід за межі струму заряду",
+            marking = "bms:23 · overcurrent charge",
+            analogs = "",
+            body = "Код 23 у більшості станцій EcoFlow — це не поломка, а робоче повідомлення BMS про те, що " +
+                "струм заряду наблизився до ліміту й контролер його притримав. Якщо станція заряджається й код " +
+                "зникає сам — панікувати не варто.\n\n" +
+                "Коли варто придивитися: код тримається постійно разом із падінням напруги однієї групи, нагрівом " +
+                "або відмовою заряджатися. Тоді перевіряйте баланс груп і шлейфи до BMS.",
+            official = true,
+            author = "Savosh Service",
+        ),
+    )
+}

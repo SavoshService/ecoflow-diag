@@ -27,9 +27,20 @@ import ua.savosh.ecoflowdiag.core.Gen3Decoder
 import ua.savosh.ecoflowdiag.core.Generation
 import ua.savosh.ecoflowdiag.core.MessageDecoder
 import ua.savosh.ecoflowdiag.core.Models
+import android.content.Intent
+import android.net.Uri
+import ua.savosh.ecoflowdiag.core.Article
+import ua.savosh.ecoflowdiag.core.Changelog
+import ua.savosh.ecoflowdiag.core.ChecklistItem
+import ua.savosh.ecoflowdiag.core.KnowledgeSeed
+import ua.savosh.ecoflowdiag.core.Note
 import ua.savosh.ecoflowdiag.core.Order
 import ua.savosh.ecoflowdiag.core.PartItem
 import ua.savosh.ecoflowdiag.core.QuotaStore
+import ua.savosh.ecoflowdiag.core.Release
+import ua.savosh.ecoflowdiag.net.TelegramConfig
+import ua.savosh.ecoflowdiag.work.ReminderWorker
+import ua.savosh.ecoflowdiag.work.SubmitWorker
 import ua.savosh.ecoflowdiag.core.Report
 import ua.savosh.ecoflowdiag.core.StationReport
 import ua.savosh.ecoflowdiag.data.Prefs
@@ -51,13 +62,14 @@ import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.random.Random
 
-enum class Screen { LOGIN, STATIONS, DIAG, RAW, LOG, FLASH, CAPTEST, CONTROL, FEEDBACK, PARTS, STATIONINFO, CRM }
+enum class Screen { LOGIN, STATIONS, DIAG, RAW, LOG, FLASH, CAPTEST, CONTROL, FEEDBACK, PARTS, STATIONINFO, CRM, KNOWLEDGE, NOTES, BACKUP }
 
 class LogLine(val time: String, val text: String)
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private val prefs = Prefs(app)
+    private val appCtx: Context = app
 
     var screen by mutableStateOf(Screen.LOGIN)
         private set
@@ -366,6 +378,262 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         prefs.saveParts(parts.toList())
     }
 
+    // ---------------- База знань майстра
+    private val userArticles = mutableStateListOf<Article>()
+
+    fun openKnowledge() { screen = Screen.KNOWLEDGE }
+
+    /** Усі статті: офіційні (з оновлення) + власні. */
+    fun allArticles(): List<Article> = KnowledgeSeed.OFFICIAL + userArticles
+
+    /** Назви розділів (унікальні, за абеткою). */
+    fun kbSections(): List<String> = allArticles().map { it.section.ifBlank { "Загальне" } }.distinct().sorted()
+
+    fun articlesIn(section: String): List<Article> =
+        allArticles().filter { it.section.ifBlank { "Загальне" } == section }.sortedByDescending { it.updatedAt }
+
+    fun articleById(id: Long?): Article? = id?.let { allArticles().firstOrNull { a -> a.id == it } }
+
+    fun saveArticle(
+        id: Long?,
+        section: String,
+        subsection: String,
+        title: String,
+        marking: String,
+        analogs: String,
+        body: String,
+        photos: List<String>,
+    ): Long {
+        val now = System.currentTimeMillis()
+        val savedId: Long
+        if (id == null || id < 0) { // нова (офіційні не редагуються)
+            savedId = prefs.nextArticleId
+            prefs.nextArticleId = savedId + 1
+            userArticles.add(
+                Article(savedId, now, now, section.trim().ifBlank { "Загальне" }, subsection.trim(),
+                    title.trim(), marking.trim(), analogs.trim(), body.trim(), photos, official = false, author = prefs.email),
+            )
+        } else {
+            savedId = id
+            val i = userArticles.indexOfFirst { it.id == id }
+            if (i < 0) return id
+            userArticles[i] = userArticles[i].copy(
+                updatedAt = now, section = section.trim().ifBlank { "Загальне" }, subsection = subsection.trim(),
+                title = title.trim(), marking = marking.trim(), analogs = analogs.trim(), body = body.trim(), photos = photos,
+            )
+        }
+        prefs.saveArticles(userArticles.toList())
+        // Автоматично (тихо, у фоні) ділимося статтею у спільну базу.
+        if (submitEnabled) SubmitWorker.enqueue(appCtx, savedId)
+        return savedId
+    }
+
+    fun deleteArticle(id: Long) {
+        val a = userArticles.firstOrNull { it.id == id } ?: return
+        for (name in a.photos) runCatching { File(photoDir(), name).delete() }
+        userArticles.removeAll { it.id == id }
+        prefs.saveArticles(userArticles.toList())
+    }
+
+    private fun photoDir(): File = File(appCtx.filesDir, "kb_photos").apply { mkdirs() }
+
+    /** Копіює вибрані фото у внутрішнє сховище, повертає імена файлів. */
+    fun importPhotos(uris: List<Uri>): List<String> {
+        val dir = photoDir()
+        val cr = appCtx.contentResolver
+        val out = ArrayList<String>()
+        for (u in uris) {
+            try {
+                val name = "img_${System.currentTimeMillis()}_${Random.nextInt(1000, 9999)}.jpg"
+                val f = File(dir, name)
+                cr.openInputStream(u)?.use { input -> f.outputStream().use { input.copyTo(it) } }
+                if (f.exists() && f.length() > 0) out.add(name)
+            } catch (e: Exception) {
+                // пропускаємо проблемне фото
+            }
+        }
+        return out
+    }
+
+    fun photoPath(name: String): String = File(photoDir(), name).absolutePath
+
+    // ---------------- «Що нового» після оновлення
+    var whatsNew by mutableStateOf<List<Release>>(emptyList())
+        private set
+
+    fun dismissWhatsNew() {
+        whatsNew = emptyList()
+        prefs.lastWhatsNewVersion = Changelog.CURRENT
+    }
+
+    // ---------------- Резервна копія (файл / Google Drive через системний вибір)
+    /** Пропонувати відновлення з файлу (чиста інсталяція без даних). */
+    var offerRestore by mutableStateOf(false)
+        private set
+
+    /** Результат останньої дії з копією (для показу користувачу). */
+    var backupStatus by mutableStateOf<String?>(null)
+
+    /** Чи налаштовано файл авто-копії. */
+    val hasBackupTarget: Boolean get() = prefs.backupUri.isNotBlank()
+
+    fun openBackup() { screen = Screen.BACKUP }
+
+    fun dismissRestore() {
+        offerRestore = false
+        prefs.restoreOffered = true
+    }
+
+    /** Зберегти копію у вибраний користувачем файл (і запам'ятати для авто-копії). */
+    fun exportToUri(uri: Uri) {
+        viewModelScope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                try {
+                    appCtx.contentResolver.openOutputStream(uri, "rwt")?.use {
+                        it.write(prefs.exportBundle().toByteArray(Charsets.UTF_8))
+                    }
+                    rememberBackupTarget(uri)
+                    true
+                } catch (e: Exception) {
+                    false
+                }
+            }
+            backupStatus = if (ok) "✓ Копію збережено. Далі оновлюватиметься автоматично." else "Не вдалося зберегти копію."
+        }
+    }
+
+    /** Відновити базу з вибраного файлу. */
+    fun importFromUri(uri: Uri) {
+        viewModelScope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                try {
+                    val text = appCtx.contentResolver.openInputStream(uri)?.use {
+                        it.readBytes().toString(Charsets.UTF_8)
+                    } ?: return@withContext false
+                    if (!prefs.importBundle(text)) return@withContext false
+                    rememberBackupTarget(uri)
+                    true
+                } catch (e: Exception) {
+                    false
+                }
+            }
+            if (ok) {
+                reloadAll()
+                offerRestore = false
+                prefs.restoreOffered = true
+                backupStatus = "✓ Дані відновлено з файлу."
+            } else {
+                backupStatus = "Не вдалося прочитати файл копії."
+            }
+        }
+    }
+
+    private fun rememberBackupTarget(uri: Uri) {
+        try {
+            appCtx.contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+            )
+        } catch (e: Exception) {
+            // деякі провайдери не дають постійний доступ — авто-копія просто не оновлюватиме цей файл
+        }
+        prefs.backupUri = uri.toString()
+    }
+
+    /** Перечитати всі дані з пам'яті у стан (після відновлення). */
+    private fun reloadAll() {
+        stations.clear(); stations.addAll(prefs.loadStations())
+        orders.clear(); orders.addAll(prefs.loadOrders())
+        parts.clear(); parts.addAll(prefs.loadParts())
+        userArticles.clear(); userArticles.addAll(prefs.loadArticles())
+        notes.clear(); notes.addAll(prefs.loadNotes())
+        reservePercent = prefs.reservePercent
+        simpleAccounting = prefs.simpleAccounting
+        demoHidden = prefs.demoHidden
+    }
+
+    /** Тихо оновити файл копії (при згортанні застосунку). */
+    private fun autoBackup() {
+        val target = prefs.backupUri
+        if (target.isBlank()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                appCtx.contentResolver.openOutputStream(Uri.parse(target), "rwt")?.use {
+                    it.write(prefs.exportBundle().toByteArray(Charsets.UTF_8))
+                }
+            } catch (e: Exception) {
+                // файл міг стати недоступним (видалено/немає доступу) — не критично
+            }
+        }
+    }
+
+    /** Чи налаштована відправка в спільну базу (Telegram). */
+    val submitEnabled: Boolean get() = TelegramConfig.configured()
+
+    /** Поставити статтю в чергу на відправку у спільну базу (фон, із повтором). */
+    fun submitArticle(id: Long) {
+        SubmitWorker.enqueue(appCtx, id)
+    }
+
+    // ---------------- Записник (нотатки)
+    val notes = mutableStateListOf<Note>()
+
+    fun openNotes() { screen = Screen.NOTES }
+
+    fun notesSorted(kind: String? = null): List<Note> {
+        val base = notes.sortedByDescending { it.updatedAt }
+        return if (kind == null) base else base.filter { it.kind == kind }
+    }
+
+    fun noteById(id: Long?): Note? = id?.let { notes.firstOrNull { n -> n.id == it } }
+
+    fun saveNote(
+        id: Long?,
+        kind: String,
+        title: String,
+        body: String,
+        items: List<ChecklistItem>,
+        stationSn: String,
+        reminderAt: Long?,
+    ): Long {
+        val now = System.currentTimeMillis()
+        val savedId: Long
+        if (id == null) {
+            savedId = prefs.nextNoteId
+            prefs.nextNoteId = savedId + 1
+            notes.add(Note(savedId, now, now, kind, title.trim(), body.trim(), items, stationSn, reminderAt))
+        } else {
+            savedId = id
+            val i = notes.indexOfFirst { it.id == id }
+            if (i < 0) return id
+            notes[i] = notes[i].copy(
+                updatedAt = now, kind = kind, title = title.trim(), body = body.trim(),
+                items = items, stationSn = stationSn, reminderAt = reminderAt,
+            )
+        }
+        prefs.saveNotes(notes.toList())
+        ReminderWorker.schedule(appCtx, savedId, title.trim().ifBlank { "Замітка" }, reminderAt)
+        return savedId
+    }
+
+    /** Перемкнути галочку пункту чеклиста. */
+    fun toggleNoteItem(noteId: Long, index: Int) {
+        val i = notes.indexOfFirst { it.id == noteId }
+        if (i < 0) return
+        val n = notes[i]
+        if (index !in n.items.indices) return
+        val newItems = n.items.toMutableList()
+        newItems[index] = newItems[index].copy(done = !newItems[index].done)
+        notes[i] = n.copy(items = newItems, updatedAt = System.currentTimeMillis())
+        prefs.saveNotes(notes.toList())
+    }
+
+    fun deleteNote(id: Long) {
+        notes.removeAll { it.id == id }
+        prefs.saveNotes(notes.toList())
+        ReminderWorker.cancel(appCtx, id)
+    }
+
     private val store = QuotaStore()
     private var mqtt: EcoflowMqtt? = null
     private var diagJob: Job? = null
@@ -379,6 +647,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         stations.addAll(prefs.loadStations())
         orders.addAll(prefs.loadOrders())
         parts.addAll(prefs.loadParts())
+        userArticles.addAll(prefs.loadArticles())
+        notes.addAll(prefs.loadNotes())
+        // «Що нового»: показати один раз для нової версії.
+        if (prefs.lastWhatsNewVersion != Changelog.CURRENT) {
+            whatsNew = Changelog.newerThan(prefs.lastWhatsNewVersion)
+        }
+        // Чиста інсталяція без даних — запропонувати відновити з файлу копії.
+        offerRestore = !prefs.hasAnyData() && !prefs.restoreOffered
         viewModelScope.launch {
             val upd = withContext(Dispatchers.IO) { Updater.check() }
             if (upd != null) availableUpdate = upd
@@ -472,8 +748,25 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         creds = null
         password = ""
         prefs.password = ""
+        // Вихід лише з акаунта EcoFlow — застосунок не закриваємо: майстерня, деталі,
+        // замітки й талмуд залишаються доступні. Діагностика станцій вимагатиме входу.
+        screen = Screen.STATIONS
+    }
+
+    /** Користуватися застосунком без входу в EcoFlow (майстерня, деталі, замітки). */
+    fun continueWithoutLogin() {
+        loginError = null
+        screen = Screen.STATIONS
+    }
+
+    /** Перейти на екран входу EcoFlow (для діагностики станцій). */
+    fun goToLogin() {
+        loginError = null
         screen = Screen.LOGIN
     }
+
+    /** Чи виконано вхід в акаунт EcoFlow. */
+    val loggedIn: Boolean get() = auth != null
 
     private suspend fun ensureAuth(): EcoflowAuth {
         auth?.let { return it }
@@ -537,6 +830,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     // =========================================================== діагностика
 
     fun openDiag(sn: String) {
+        // Діагностика потребує входу в EcoFlow. Якщо входу немає й немає збережених даних — на екран входу.
+        if (auth == null && (prefs.email.isBlank() || prefs.password.isBlank())) {
+            loginError = "Увійдіть в акаунт EcoFlow, щоб діагностувати станції."
+            screen = Screen.LOGIN
+            return
+        }
         pausedSn = null
         screen = Screen.DIAG
         startDiag(sn)
@@ -1017,6 +1316,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Застосунок згорнуто: розриваємо з'єднання, щоб воно не "зависало" у фоні. */
     fun onAppBackground() {
+        autoBackup() // тиха авто-копія при згортанні
         val sn = diagSn
         if (capTestRunning) {
             addLog("Застосунок згорнуто, але йде тест ємності — зв'язок не розриваємо")
@@ -1152,6 +1452,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun back(): Boolean = when (screen) {
         Screen.FLASH -> {
             screen = Screen.STATIONS
+            true
+        }
+        Screen.KNOWLEDGE, Screen.NOTES, Screen.BACKUP -> {
+            screen = Screen.PARTS
             true
         }
         Screen.FEEDBACK, Screen.PARTS, Screen.STATIONINFO, Screen.CRM -> {

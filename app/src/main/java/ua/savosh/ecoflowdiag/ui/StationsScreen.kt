@@ -46,7 +46,9 @@ import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.Button
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -101,18 +103,24 @@ fun StationsScreen(vm: AppViewModel) {
                     }
                 },
                 actions = {
-                    IconButton(
-                        onClick = { if (vm.refreshAllBusy) vm.stopRefreshAll() else vm.refreshAllStations() },
-                        enabled = vm.stations.isNotEmpty(),
-                    ) {
-                        if (vm.refreshAllBusy) {
-                            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                        } else {
-                            Icon(Icons.Filled.Refresh, contentDescription = "Оновити всі станції")
+                    if (vm.loggedIn) {
+                        IconButton(
+                            onClick = { if (vm.refreshAllBusy) vm.stopRefreshAll() else vm.refreshAllStations() },
+                            enabled = vm.stations.isNotEmpty(),
+                        ) {
+                            if (vm.refreshAllBusy) {
+                                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                            } else {
+                                Icon(Icons.Filled.Refresh, contentDescription = "Оновити всі станції")
+                            }
                         }
-                    }
-                    IconButton(onClick = { confirmLogout = true }) {
-                        Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Вийти з акаунта")
+                        IconButton(onClick = { confirmLogout = true }) {
+                            Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Вийти з акаунта")
+                        }
+                    } else {
+                        IconButton(onClick = { vm.goToLogin() }) {
+                            Text("🔑", style = MaterialTheme.typography.titleMedium)
+                        }
                     }
                 },
             )
@@ -165,6 +173,21 @@ fun StationsScreen(vm: AppViewModel) {
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
+                    if (!vm.loggedIn) {
+                        Text("Вхід в EcoFlow — для діагностики", style = MaterialTheme.typography.titleMedium)
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Майстерня, деталі й замітки працюють без входу. Щоб бачити й діагностувати свої станції — " +
+                                "увійдіть в акаунт EcoFlow.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Button(onClick = { vm.goToLogin() }) { Text("Увійти в EcoFlow") }
+                        Spacer(Modifier.height(20.dp))
+                        DemoCard(onOpen = { vm.openDemo() })
+                    } else {
                     Text("Поки що немає станцій", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(8.dp))
                     Text(
@@ -175,6 +198,7 @@ fun StationsScreen(vm: AppViewModel) {
                     )
                     Spacer(Modifier.height(20.dp))
                     DemoCard(onOpen = { vm.openDemo() })
+                    }
                 }
             } else {
                 LazyColumn(
@@ -379,7 +403,7 @@ private fun QuickActions(
 ) {
     Row(modifier = modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         if (donateEnabled()) {
-            QuickTile("☕", "Підтримати", Modifier.weight(1f), onDonate)
+            QuickTile("☕", "КАВА", Modifier.weight(1f), onDonate)
         }
         QuickTile("✈", "Зв'язок", Modifier.weight(1f), onFeedback)
         QuickTile(label = "Деталі", modifier = Modifier.weight(1f), onClick = onParts) { SpinningChip(sizeDp = 30) }

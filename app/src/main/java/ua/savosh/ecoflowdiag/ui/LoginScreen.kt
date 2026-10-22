@@ -137,6 +137,10 @@ fun LoginScreen(vm: AppViewModel) {
                     Text("Увійти")
                 }
             }
+            Spacer(Modifier.height(8.dp))
+            TextButton(onClick = { vm.continueWithoutLogin() }, modifier = Modifier.fillMaxWidth()) {
+                Text("Продовжити без входу — майстерня, деталі, замітки")
+            }
             Spacer(Modifier.height(24.dp))
             Text(
                 "Вхід такий самий, як у застосунку EcoFlow. Ключі розробника не потрібні. " +

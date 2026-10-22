@@ -2,7 +2,10 @@ package ua.savosh.ecoflowdiag.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import ua.savosh.ecoflowdiag.core.Article
+import ua.savosh.ecoflowdiag.core.ChecklistItem
 import ua.savosh.ecoflowdiag.core.Json
+import ua.savosh.ecoflowdiag.core.Note
 import ua.savosh.ecoflowdiag.core.Order
 import ua.savosh.ecoflowdiag.core.PartItem
 
@@ -257,5 +260,177 @@ class Prefs(context: Context) {
             )
         }
         sp.edit().putString("crm_parts", Json.stringify(arr)).apply()
+    }
+
+    // ----- База знань майстра -----
+
+    /** Остання версія, для якої вже показали «Що нового». */
+    var lastWhatsNewVersion: String
+        get() = sp.getString("whatsnew_version", "") ?: ""
+        set(v) = sp.edit().putString("whatsnew_version", v).apply()
+
+    var nextArticleId: Long
+        get() = sp.getLong("kb_next_id", 1L)
+        set(v) = sp.edit().putLong("kb_next_id", v).apply()
+
+    fun loadArticles(): List<Article> {
+        val text = sp.getString("kb_articles", null) ?: return emptyList()
+        val list = Json.parseOrNull(text) as? List<*> ?: return emptyList()
+        return list.mapNotNull { item ->
+            val m = item as? Map<*, *> ?: return@mapNotNull null
+            val id = (m["id"] as? Number)?.toLong() ?: return@mapNotNull null
+            Article(
+                id = id,
+                createdAt = (m["createdAt"] as? Number)?.toLong() ?: 0L,
+                updatedAt = (m["updatedAt"] as? Number)?.toLong() ?: 0L,
+                section = m["section"]?.toString() ?: "Загальне",
+                subsection = m["subsection"]?.toString() ?: "",
+                title = m["title"]?.toString() ?: "",
+                marking = m["marking"]?.toString() ?: "",
+                analogs = m["analogs"]?.toString() ?: "",
+                body = m["body"]?.toString() ?: "",
+                photos = (m["photos"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList(),
+                official = false,
+                author = m["author"]?.toString() ?: "",
+            )
+        }
+    }
+
+    fun saveArticles(list: List<Article>) {
+        val arr = list.filter { !it.official }.map {
+            linkedMapOf<String, Any?>(
+                "id" to it.id,
+                "createdAt" to it.createdAt,
+                "updatedAt" to it.updatedAt,
+                "section" to it.section,
+                "subsection" to it.subsection,
+                "title" to it.title,
+                "marking" to it.marking,
+                "analogs" to it.analogs,
+                "body" to it.body,
+                "photos" to it.photos,
+                "author" to it.author,
+            )
+        }
+        sp.edit().putString("kb_articles", Json.stringify(arr)).apply()
+    }
+
+    // ----- Записник (нотатки) -----
+
+    var nextNoteId: Long
+        get() = sp.getLong("notes_next_id", 1L)
+        set(v) = sp.edit().putLong("notes_next_id", v).apply()
+
+    fun loadNotes(): List<Note> {
+        val text = sp.getString("notes", null) ?: return emptyList()
+        val list = Json.parseOrNull(text) as? List<*> ?: return emptyList()
+        return list.mapNotNull { item ->
+            val m = item as? Map<*, *> ?: return@mapNotNull null
+            val id = (m["id"] as? Number)?.toLong() ?: return@mapNotNull null
+            val items = (m["items"] as? List<*>)?.mapNotNull { it0 ->
+                val im = it0 as? Map<*, *> ?: return@mapNotNull null
+                ChecklistItem(im["text"]?.toString() ?: "", im["done"] as? Boolean ?: false)
+            } ?: emptyList()
+            Note(
+                id = id,
+                createdAt = (m["createdAt"] as? Number)?.toLong() ?: 0L,
+                updatedAt = (m["updatedAt"] as? Number)?.toLong() ?: 0L,
+                kind = m["kind"]?.toString() ?: "plain",
+                title = m["title"]?.toString() ?: "",
+                body = m["body"]?.toString() ?: "",
+                items = items,
+                stationSn = m["stationSn"]?.toString() ?: "",
+                reminderAt = (m["reminderAt"] as? Number)?.toLong(),
+            )
+        }
+    }
+
+    fun saveNotes(list: List<Note>) {
+        val arr = list.map { n ->
+            linkedMapOf<String, Any?>(
+                "id" to n.id,
+                "createdAt" to n.createdAt,
+                "updatedAt" to n.updatedAt,
+                "kind" to n.kind,
+                "title" to n.title,
+                "body" to n.body,
+                "items" to n.items.map { linkedMapOf<String, Any?>("text" to it.text, "done" to it.done) },
+                "stationSn" to n.stationSn,
+                "reminderAt" to n.reminderAt,
+            )
+        }
+        sp.edit().putString("notes", Json.stringify(arr)).apply()
+    }
+
+    // ======================= Резервна копія =======================
+
+    /** Збережена адреса файлу копії (SAF Uri). Порожньо — копію ще не налаштовано. */
+    var backupUri: String
+        get() = sp.getString("backup_uri", "") ?: ""
+        set(v) = sp.edit().putString("backup_uri", v).apply()
+
+    /** Чи пропонували вже відновлення після встановлення (щоб не нагадувати щоразу). */
+    var restoreOffered: Boolean
+        get() = sp.getBoolean("restore_offered", false)
+        set(v) = sp.edit().putBoolean("restore_offered", v).apply()
+
+    fun hasAnyData(): Boolean =
+        !sp.getString("stations", null).isNullOrBlank() ||
+            !sp.getString("crm_orders", null).isNullOrBlank() ||
+            !sp.getString("crm_parts", null).isNullOrBlank() ||
+            !sp.getString("kb_articles", null).isNullOrBlank() ||
+            !sp.getString("notes", null).isNullOrBlank()
+
+    /** Уся база застосунку одним JSON (для файлу копії / Google Drive). */
+    fun exportBundle(): String {
+        fun section(key: String): Any? = Json.parseOrNull(sp.getString(key, "[]") ?: "[]")
+        val m = linkedMapOf<String, Any?>(
+            "app" to APP_TAG,
+            "schema" to 1,
+            "exportedAt" to System.currentTimeMillis(),
+            "stations" to section("stations"),
+            "crm_orders" to section("crm_orders"),
+            "crm_parts" to section("crm_parts"),
+            "kb_articles" to section("kb_articles"),
+            "notes" to section("notes"),
+            "settings" to linkedMapOf<String, Any?>(
+                "email" to email,
+                "host" to host,
+                "reservePercent" to reservePercent,
+                "simpleAccounting" to simpleAccounting,
+                "demoHidden" to demoHidden,
+                "crm_next_id" to nextOrderId,
+                "crm_next_part_id" to nextPartId,
+                "kb_next_id" to nextArticleId,
+                "notes_next_id" to nextNoteId,
+            ),
+        )
+        return Json.stringify(m)
+    }
+
+    /** Відновлює базу з JSON копії. Повертає true, якщо файл валідний. */
+    fun importBundle(json: String): Boolean {
+        val m = Json.parseOrNull(json) as? Map<*, *> ?: return false
+        if (m["app"] != APP_TAG) return false
+        val e = sp.edit()
+        fun put(key: String) { m[key]?.let { e.putString(key, Json.stringify(it)) } }
+        put("stations"); put("crm_orders"); put("crm_parts"); put("kb_articles"); put("notes")
+        (m["settings"] as? Map<*, *>)?.let { s ->
+            (s["email"] as? String)?.let { e.putString("email", it) }
+            (s["host"] as? String)?.let { e.putString("host", it) }
+            (s["reservePercent"] as? Number)?.let { e.putString("crm_reserve_pct", it.toString()) }
+            (s["simpleAccounting"] as? Boolean)?.let { e.putBoolean("crm_simple_acc", it) }
+            (s["demoHidden"] as? Boolean)?.let { e.putBoolean("demoHidden", it) }
+            (s["crm_next_id"] as? Number)?.let { e.putLong("crm_next_id", it.toLong()) }
+            (s["crm_next_part_id"] as? Number)?.let { e.putLong("crm_next_part_id", it.toLong()) }
+            (s["kb_next_id"] as? Number)?.let { e.putLong("kb_next_id", it.toLong()) }
+            (s["notes_next_id"] as? Number)?.let { e.putLong("notes_next_id", it.toLong()) }
+        }
+        e.apply()
+        return true
+    }
+
+    private companion object {
+        const val APP_TAG = "savosh-ecoflow"
     }
 }

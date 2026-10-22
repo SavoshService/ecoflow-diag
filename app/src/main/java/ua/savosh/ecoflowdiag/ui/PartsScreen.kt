@@ -1,7 +1,10 @@
 package ua.savosh.ecoflowdiag.ui
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -16,6 +19,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -32,6 +37,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -62,68 +68,56 @@ fun PartsScreen(vm: AppViewModel) {
         ) {
             SpinningChip(sizeDp = 120)
 
-            Text("Спільна база деталей", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            Text("Записник майстра", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Text(
-                "Разом розвиваємо ремонт станцій в Україні. Тут буде відкритий довідник: що за деталь на платі, " +
-                    "її повна назва, значення й чим її замінити — щоб майстри не шукали це наосліп, а ділилися знанням.",
+                "Довідник, замітки й нагадування — усе в одному місці. Веди свій талмуд, чеклисти ремонтів " +
+                    "і нотатки до станцій, а новинами діліться у спільноті.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
 
-            SoonBadge()
+            Spacer(Modifier.height(4.dp))
+            HubCard(
+                emoji = "📖", title = "Талмуд майстрів", accent = Color(0xFF7C3AED),
+                subtitle = "Статті з фото, маркуванням і аналогами. Пиши — і це побачить уся спільнота.",
+            ) { vm.openKnowledge() }
+            HubCard(
+                emoji = "📝", title = "Замітки майстра", accent = Color(0xFF2563EB),
+                subtitle = "Нотатки, чеклисти з галочками, замітки до станцій і нагадування. Лише для тебе.",
+            ) { vm.openNotes() }
+            HubCard(
+                emoji = "📣", title = "Канал спільноти", accent = Color(0xFF16A34A),
+                subtitle = "Новини, обговорення й спільна база знань майстрів — приєднуйся.",
+            ) { openUrl(ctx, COMMUNITY_URL) }
+            HubCard(
+                emoji = "💾", title = "Резервна копія", accent = Color(0xFFEA580C),
+                subtitle = "Збережи дані у файл або на Google Диск, щоб не втратити при перевстановленні.",
+            ) { vm.openBackup() }
+        }
+    }
+}
 
-            SectionCard("Довідник майстра · талмуд") {
-                Text(
-                    "Тут буде талмуд майстра: розшифрування деталей, пояснення й нюанси ремонту станцій — усе в одному місці. " +
-                        "Розділи наповнюються спільнотою:",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(12.dp))
-                ColorButton("📘  Талмуд деталей", Color(0xFF2563EB)) { openTelegram(ctx) }
-                Spacer(Modifier.height(8.dp))
-                ColorButton("🔁  Аналоги pin-to-pin", Color(0xFF16A34A)) { openTelegram(ctx) }
-                Spacer(Modifier.height(8.dp))
-                ColorButton("🧰  Нюанси ремонту станцій", Color(0xFFEA580C)) { openTelegram(ctx) }
-                Spacer(Modifier.height(8.dp))
-                ColorButton("⚡  Типові несправності", Color(0xFF9333EA)) { openTelegram(ctx) }
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "Поки розділи готуються — кнопки ведуть у Телеграм, де можна спитати, підказати деталь чи аналог.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+/** Приваблива плитка-розділ: кольорова іконка, назва, опис і стрілка. */
+@Composable
+private fun HubCard(emoji: String, title: String, subtitle: String, accent: Color, onClick: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+    ) {
+        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(48.dp).clip(RoundedCornerShape(14.dp)).background(accent.copy(alpha = 0.20f)),
+                contentAlignment = Alignment.Center,
+            ) { Text(emoji, style = MaterialTheme.typography.headlineSmall) }
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-
-            SectionCard("Що буде в довіднику") {
-                Bullet("Розшифрування маркувань мікросхем (напр. «1G6P» → що це)")
-                Bullet("Які деталі стоять у конкретних станціях (Delta 2, Max, River…)")
-                Bullet("Повна назва й основні параметри деталі")
-                Bullet("Аналог pin-to-pin — чим замінити без переробки плати")
-                Bullet("Фото маркування й розташування на платі")
-            }
-
-            SectionCard("Приклад запису") {
-                Text("Delta 2 · ШІМ-контролер", fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(4.dp))
-                Text("Маркування: 1G6P", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("Повна назва: (додається спільнотою)", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("Аналог pin-to-pin: (додається спільнотою)", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-
-            SectionCard("Внеси свій вклад") {
-                Text(
-                    "Знаєш розшифрування деталі або робочий аналог? Надішли фото маркування й плату в Телеграм — " +
-                        "додам у довідник, і воно прийде всім майстрам з наступним оновленням. Так ми швидше відновлюємо станції по всій країні.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(10.dp))
-                OutlinedButton(onClick = { openTelegram(ctx) }, modifier = Modifier.fillMaxWidth()) {
-                    Text("✈ Надіслати деталь / аналог")
-                }
-            }
+            Spacer(Modifier.width(8.dp))
+            Text("→", style = MaterialTheme.typography.titleLarge, color = accent)
         }
     }
 }

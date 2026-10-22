@@ -65,10 +65,10 @@ fun SteamingCoffee(sizeDp: Int = 140) {
             delay(33)
         }
     }
-    val cup = MaterialTheme.colorScheme.surfaceContainerHigh
-    val cupEdge = MaterialTheme.colorScheme.outline
-    val coffee = Color(0xFF6F4E37)
-    val crema = Color(0xFFB08968)
+    val cup = Color(0xFFEDE4D3) // порцеляна — світла, не зливається з темним тлом
+    val cupEdge = Color(0xFF8A7A5E)
+    val coffee = Color(0xFF5A3A26)
+    val crema = Color(0xFFC89B6E)
     val steam = MaterialTheme.colorScheme.onSurfaceVariant
 
     Box(Modifier.size(sizeDp.dp), contentAlignment = Alignment.Center) {
