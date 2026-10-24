@@ -165,6 +165,14 @@ fun StationsScreen(vm: AppViewModel) {
                     )
                 }
             }
+            // Нагадування увімкнути резервну копію (є дані, але копію не налаштовано).
+            if (vm.needsBackup && !vm.backupBannerHidden) {
+                BackupReminder(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    onSetup = { vm.openBackup() },
+                    onHide = { vm.hideBackupBanner() },
+                )
+            }
             if (vm.stations.isEmpty()) {
                 Column(
                     Modifier
@@ -445,6 +453,38 @@ private fun WorkshopEntry(
                 )
             }
             Text("→", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
+        }
+    }
+}
+
+/** Нагадування увімкнути резервну копію, щоб не втратити дані при видаленні застосунку. */
+@Composable
+private fun BackupReminder(modifier: Modifier = Modifier, onSetup: () -> Unit, onHide: () -> Unit) {
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+            Text(
+                "⚠️ Увімкни резервну копію",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onTertiaryContainer,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Якщо видалити застосунок — замовлення, склад і замітки пропадуть. Збережи копію на Google Диск " +
+                    "(безкоштовно, у твоєму власному хмарному сховищі) — і далі вона оновлюватиметься сама.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onTertiaryContainer,
+            )
+            Spacer(Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Button(onClick = onSetup) { Text("Налаштувати копію") }
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = onHide) { Text("Пізніше") }
+            }
         }
     }
 }

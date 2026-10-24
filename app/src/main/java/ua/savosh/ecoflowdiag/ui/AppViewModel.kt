@@ -301,6 +301,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun persistOrders() {
         prefs.saveOrders(orders.toList())
+        scheduleBackup()
     }
 
     // ---------------- налаштування бухгалтерії
@@ -352,7 +353,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             parts.add(
                 PartItem(newId, now, now, nm, quantity.coerceAtLeast(0), location.trim(), code.trim(), note.trim(), price),
             )
-            prefs.saveParts(parts.toList())
+            persistParts()
             return newId
         }
         val i = parts.indexOfFirst { it.id == id }
@@ -361,7 +362,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             updatedAt = now, name = nm, quantity = quantity.coerceAtLeast(0),
             location = location.trim(), code = code.trim(), note = note.trim(), price = price,
         )
-        prefs.saveParts(parts.toList())
+        persistParts()
         return id
     }
 
@@ -370,12 +371,17 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val i = parts.indexOfFirst { it.id == id }
         if (i < 0) return
         parts[i] = parts[i].copy(quantity = (parts[i].quantity + delta).coerceAtLeast(0), updatedAt = System.currentTimeMillis())
-        prefs.saveParts(parts.toList())
+        persistParts()
     }
 
     fun deletePart(id: Long) {
         parts.removeAll { it.id == id }
+        persistParts()
+    }
+
+    private fun persistParts() {
         prefs.saveParts(parts.toList())
+        scheduleBackup()
     }
 
     // ---------------- База знань майстра
@@ -423,6 +429,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             )
         }
         prefs.saveArticles(userArticles.toList())
+        scheduleBackup()
         // Автоматично (тихо, у фоні) ділимося статтею у спільну базу.
         if (submitEnabled) SubmitWorker.enqueue(appCtx, savedId)
         return savedId
@@ -433,6 +440,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         for (name in a.photos) runCatching { File(photoDir(), name).delete() }
         userArticles.removeAll { it.id == id }
         prefs.saveArticles(userArticles.toList())
+        scheduleBackup()
     }
 
     private fun photoDir(): File = File(appCtx.filesDir, "kb_photos").apply { mkdirs() }
@@ -552,8 +560,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         demoHidden = prefs.demoHidden
     }
 
-    /** Тихо оновити файл копії (при згортанні застосунку). */
-    private fun autoBackup() {
+    /** Чи є дані, але копію ще не налаштовано (для нагадування). */
+    val needsBackup: Boolean get() = prefs.hasAnyData() && prefs.backupUri.isBlank()
+
+    /** Банер нагадування про копію сховано на цю сесію. */
+    var backupBannerHidden by mutableStateOf(false)
+        private set
+
+    fun hideBackupBanner() { backupBannerHidden = true }
+
+    private var backupJob: Job? = null
+
+    /** Тихо записати файл копії зараз. */
+    private fun writeBackup() {
         val target = prefs.backupUri
         if (target.isBlank()) return
         viewModelScope.launch(Dispatchers.IO) {
@@ -564,6 +583,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             } catch (e: Exception) {
                 // файл міг стати недоступним (видалено/немає доступу) — не критично
             }
+        }
+    }
+
+    /** Запланувати авто-копію (після змін, з невеликою затримкою, щоб не писати на кожну літеру). */
+    private fun scheduleBackup() {
+        if (prefs.backupUri.isBlank()) return
+        backupJob?.cancel()
+        backupJob = viewModelScope.launch {
+            delay(3000)
+            writeBackup()
         }
     }
 
@@ -611,7 +640,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 items = items, stationSn = stationSn, reminderAt = reminderAt,
             )
         }
-        prefs.saveNotes(notes.toList())
+        persistNotes()
         ReminderWorker.schedule(appCtx, savedId, title.trim().ifBlank { "Замітка" }, reminderAt)
         return savedId
     }
@@ -625,13 +654,18 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val newItems = n.items.toMutableList()
         newItems[index] = newItems[index].copy(done = !newItems[index].done)
         notes[i] = n.copy(items = newItems, updatedAt = System.currentTimeMillis())
-        prefs.saveNotes(notes.toList())
+        persistNotes()
     }
 
     fun deleteNote(id: Long) {
         notes.removeAll { it.id == id }
-        prefs.saveNotes(notes.toList())
+        persistNotes()
         ReminderWorker.cancel(appCtx, id)
+    }
+
+    private fun persistNotes() {
+        prefs.saveNotes(notes.toList())
+        scheduleBackup()
     }
 
     private val store = QuotaStore()
@@ -806,6 +840,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val entry = StationEntry(sn, note.trim(), Models.bySn(sn)?.name, null, null, null, null)
         stations.add(0, entry)
         prefs.saveStations(stations.toList())
+        scheduleBackup()
         return null
     }
 
@@ -814,11 +849,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (i < 0) return
         stations[i] = stations[i].copy(note = note.trim())
         prefs.saveStations(stations.toList())
+        scheduleBackup()
     }
 
     fun deleteStation(sn: String) {
         stations.removeAll { it.sn == sn }
         prefs.saveStations(stations.toList())
+        scheduleBackup()
         prefs.deleteReport(sn)
         prefs.deleteHistory(sn)
     }
@@ -1316,7 +1353,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Застосунок згорнуто: розриваємо з'єднання, щоб воно не "зависало" у фоні. */
     fun onAppBackground() {
-        autoBackup() // тиха авто-копія при згортанні
+        writeBackup() // тиха авто-копія при згортанні (одразу)
         val sn = diagSn
         if (capTestRunning) {
             addLog("Застосунок згорнуто, але йде тест ємності — зв'язок не розриваємо")
