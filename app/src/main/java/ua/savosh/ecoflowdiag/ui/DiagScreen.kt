@@ -81,14 +81,10 @@ fun DiagScreen(vm: AppViewModel) {
     val r = vm.report
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var menu by remember { mutableStateOf(false) }
-    var shareMenu by remember { mutableStateOf(false) }
     var editCode by remember { mutableStateOf<CodeEdit?>(null) }
     var explain by remember { mutableStateOf<EcoflowCodes.Doc?>(null) }
     var confirmClear by remember { mutableStateOf(false) }
 
-    fun share(technical: Boolean) {
-        vm.reportText(technical)?.let { shareText(context, it, "${if (technical) "Технічний звіт" else "Діагностика"} ${vm.diagSn}") }
-    }
     val onEditCode: (Indicator) -> Unit = { ind -> ind.codeKey?.let { editCode = CodeEdit(it, ind.title, ind.value) } }
     val onExplain: (String?) -> Unit = { key -> EcoflowCodes.forKey(key)?.let { explain = it } }
 
@@ -112,12 +108,8 @@ fun DiagScreen(vm: AppViewModel) {
                 },
                 actions = {
                     IconButton(onClick = { vm.refreshNow() }) { Icon(Icons.Filled.Refresh, contentDescription = "Оновити") }
-                    Box {
-                        IconButton(onClick = { shareMenu = true }, enabled = r != null) { Icon(Icons.Filled.Share, contentDescription = "Поділитися") }
-                        DropdownMenu(expanded = shareMenu, onDismissRequest = { shareMenu = false }) {
-                            DropdownMenuItem(text = { Text("Звіт клієнту") }, onClick = { shareMenu = false; share(false) })
-                            DropdownMenuItem(text = { Text("Технічний звіт (усі коди й поля)") }, onClick = { shareMenu = false; share(true) })
-                        }
+                    IconButton(onClick = { vm.openReport() }, enabled = r != null) {
+                        Icon(Icons.Filled.Share, contentDescription = "Звіт")
                     }
                     Box {
                         IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "Ще") }
@@ -251,9 +243,9 @@ private fun OverviewTab(vm: AppViewModel, r: StationReport, onEditCode: (Indicat
             Text(if (vm.capTestRunning) "🔋 Тест триває" else "🔋 Тест ємності")
         }
         OutlinedButton(
-            onClick = { vm.reportText(false)?.let { shareText(ctx, it, "Діагностика ${vm.diagSn}") } },
+            onClick = { vm.openReport() },
             modifier = Modifier.weight(1f),
-        ) { Text("Звіт клієнту") }
+        ) { Text("📄 Звіт") }
     }
 }
 

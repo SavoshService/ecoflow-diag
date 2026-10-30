@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -8,12 +10,23 @@ android {
     namespace = "ua.savosh.ecoflowdiag"
     compileSdk = 35
 
+    // Секрети (токен Telegram-бота, client_secret Google) НЕ зберігаються в коді — репозиторій публічний.
+    //   • на GitHub — з GitHub Secrets TG_BOT_TOKEN / GOOGLE_CLIENT_SECRET (workflow передає їх змінними оточення);
+    //   • локально — з local.properties (у git не потрапляє).
+    // Якщо секрету немає — відповідна функція просто вимикається.
+    val localProps = Properties().apply {
+        rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
+    }
+    fun secret(name: String): String = (System.getenv(name) ?: localProps.getProperty(name) ?: "").trim()
+
     defaultConfig {
         applicationId = "ua.savosh.ecoflowdiag"
         minSdk = 26
         targetSdk = 35
-        versionCode = 28
-        versionName = "2.17"
+        versionCode = 29
+        versionName = "2.18"
+        buildConfigField("String", "TG_BOT_TOKEN", "\"${secret("TG_BOT_TOKEN")}\"")
+        buildConfigField("String", "GOOGLE_CLIENT_SECRET", "\"${secret("GOOGLE_CLIENT_SECRET")}\"")
     }
 
     // Постійний ключ підпису: нові збірки встановлюються поверх старих без видалення застосунку.
@@ -59,6 +72,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     packaging {
         resources {
@@ -68,6 +82,15 @@ android {
     lint {
         checkReleaseBuilds = false
         abortOnError = false
+    }
+
+    // Назва готового APK містить версію й тип збірки: SavoshEcoFlow-2.18-release.apk
+    applicationVariants.all {
+        val variant = this
+        outputs.all {
+            (this as com.android.build.gradle.internal.api.BaseVariantOutputImpl).outputFileName =
+                "SavoshEcoFlow-${variant.versionName}-${variant.buildType.name}.apk"
+        }
     }
 }
 

@@ -1,5 +1,6 @@
 package ua.savosh.ecoflowdiag.net
 
+import ua.savosh.ecoflowdiag.BuildConfig
 import java.io.DataOutputStream
 import java.io.File
 import java.net.HttpURLConnection
@@ -11,8 +12,10 @@ import java.net.URLEncoder
  * Усе з талмуда відправляється автоматично у фоні (без кнопок і написів).
  */
 object TelegramConfig {
-    const val BOT_TOKEN = "8984593169:AAGW_0f4N2A3uFrPNQsfn112_kJD7-0R_90"
+    // токен — з local.properties / GitHub Secrets (див. app/build.gradle.kts), у коді його немає
+    val BOT_TOKEN: String = BuildConfig.TG_BOT_TOKEN
     const val CHAT_ID = "-1003744655236" // група «Савош_Сервіс суспільство»
+    const val ADMIN_CHAT_ID = "8067993283" // особистий чат майстра — для кодів помилок
 
     fun configured(): Boolean = BOT_TOKEN.contains(":") && CHAT_ID.isNotBlank()
 }
@@ -62,8 +65,21 @@ object TelegramSubmit {
         return true
     }
 
-    private fun sendMessage(text: String) {
-        val body = "chat_id=" + enc(TelegramConfig.CHAT_ID) + "&text=" + enc(text) + "&disable_web_page_preview=true"
+    /** Відправити коди помилок у особистий чат майстра (для вивчення). true — успіх. */
+    fun sendCodes(text: String): Boolean {
+        if (!TelegramConfig.BOT_TOKEN.contains(":") || TelegramConfig.ADMIN_CHAT_ID.isBlank()) return false
+        return try {
+            sendMessageTo(TelegramConfig.ADMIN_CHAT_ID, text)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun sendMessage(text: String) = sendMessageTo(TelegramConfig.CHAT_ID, text)
+
+    private fun sendMessageTo(chatId: String, text: String) {
+        val body = "chat_id=" + enc(chatId) + "&text=" + enc(text) + "&disable_web_page_preview=true"
         val conn = (URI(api("sendMessage")).toURL().openConnection() as HttpURLConnection).apply {
             connectTimeout = 15000
             readTimeout = 20000

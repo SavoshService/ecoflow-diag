@@ -52,6 +52,12 @@ import ua.savosh.ecoflowdiag.net.ApkUpdater
 import ua.savosh.ecoflowdiag.net.EcoflowApi
 import ua.savosh.ecoflowdiag.net.EcoflowAuth
 import ua.savosh.ecoflowdiag.net.EcoflowMqtt
+import ua.savosh.ecoflowdiag.net.GoogleDrive
+import ua.savosh.ecoflowdiag.net.TelegramSubmit
+import ua.savosh.ecoflowdiag.core.EcoflowCodes
+import ua.savosh.ecoflowdiag.core.Indicator
+import ua.savosh.ecoflowdiag.core.Level
+import ua.savosh.ecoflowdiag.data.SavedReport
 import ua.savosh.ecoflowdiag.net.MqttAuthException
 import ua.savosh.ecoflowdiag.net.MqttCreds
 import ua.savosh.ecoflowdiag.net.UpdateInfo
@@ -62,7 +68,7 @@ import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.random.Random
 
-enum class Screen { LOGIN, STATIONS, DIAG, RAW, LOG, FLASH, CAPTEST, CONTROL, FEEDBACK, PARTS, STATIONINFO, CRM, KNOWLEDGE, NOTES, BACKUP }
+enum class Screen { LOGIN, STATIONS, DIAG, RAW, LOG, FLASH, CAPTEST, CONTROL, FEEDBACK, PARTS, STATIONINFO, CRM, KNOWLEDGE, NOTES, BACKUP, REPORT }
 
 class LogLine(val time: String, val text: String)
 
@@ -474,78 +480,125 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         prefs.lastWhatsNewVersion = Changelog.CURRENT
     }
 
-    // ---------------- Резервна копія (файл / Google Drive через системний вибір)
-    /** Пропонувати відновлення з файлу (чиста інсталяція без даних). */
+    // ---------------- Згода на спільну базу (статті й коди надсилаються автоматично)
+    var showShareConsent by mutableStateOf(!prefs.shareConsentShown)
+        private set
+
+    fun acceptShareConsent() {
+        showShareConsent = false
+        prefs.shareConsentShown = true
+    }
+
+    // ---------------- Резервна копія — лише Google Диск (копії у файл прибрано)
+    /** Запропонувати відновлення з Google (чиста інсталяція без даних). */
     var offerRestore by mutableStateOf(false)
         private set
 
-    /** Результат останньої дії з копією (для показу користувачу). */
-    var backupStatus by mutableStateOf<String?>(null)
+    // ---------------- Google Диск (автоматична хмарна синхронізація)
+    var gdStatus by mutableStateOf<String?>(null)
+    val gdConnected: Boolean get() = prefs.gdConnected
+    val gdEmail: String get() = prefs.gdEmail
+    val gdConfigured: Boolean get() = GoogleDrive.configured()
+    private var driveJob: Job? = null
 
-    /** Чи налаштовано файл авто-копії. */
-    val hasBackupTarget: Boolean get() = prefs.backupUri.isNotBlank()
+    /** Увійти через Google (відкриває браузер) і зробити першу синхронізацію. */
+    fun connectGoogle() {
+        if (!GoogleDrive.configured()) {
+            gdStatus = "Синхронізацію Google ще не налаштовано в цій збірці."
+            return
+        }
+        viewModelScope.launch {
+            gdStatus = "Відкриваю вхід Google у браузері…"
+            val res = withContext(Dispatchers.IO) {
+                runCatching { GoogleDrive.signIn(appCtx) }
+            }
+            res.fold(
+                onSuccess = { r ->
+                    prefs.saveGoogleTokens(r.refreshToken, r.accessToken, r.expiresInSec, r.email)
+                    gdStatus = "✓ Підключено: ${r.email.ifBlank { "Google акаунт" }}. Синхронізую…"
+                    gdStatus = withContext(Dispatchers.IO) { runCatching { initialGoogleSync() }.getOrElse { "Підключено, але синхронізація не вдалась: ${it.message}" } }
+                },
+                onFailure = { e ->
+                    gdStatus = "Не вдалося увійти: ${e.message ?: "невідома помилка"}"
+                },
+            )
+        }
+    }
+
+    fun disconnectGoogle() {
+        prefs.clearGoogle()
+        gdStatus = "Google відключено."
+    }
+
+    fun syncGoogleNow() {
+        if (!prefs.gdConnected) return
+        viewModelScope.launch {
+            gdStatus = "Синхронізую…"
+            gdStatus = withContext(Dispatchers.IO) {
+                try { pushGoogle(); "✓ Синхронізовано з Google." } catch (e: Exception) { "Не вдалося синхронізувати." }
+            }
+        }
+    }
+
+    /** Перша синхронізація після входу: тягнемо хмару, якщо локально порожньо або хмара новіша. */
+    private suspend fun initialGoogleSync(): String {
+        val token = freshGoogleToken() ?: return "Помилка авторизації Google."
+        val fid = GoogleDrive.findFileId(token)
+        if (fid != null) {
+            val remote = GoogleDrive.download(token, fid)
+            val localEmpty = !prefs.hasAnyData()
+            if (remote != null && (localEmpty || bundleTime(remote) > bundleTime(prefs.exportBundle()))) {
+                if (prefs.importBundle(remote)) {
+                    prefs.gdFileId = fid
+                    withContext(Dispatchers.Main) {
+                        reloadAll(); offerRestore = false; prefs.restoreOffered = true
+                    }
+                    return "✓ Дані відновлено з Google Диску."
+                }
+            }
+            prefs.gdFileId = GoogleDrive.upload(token, fid, prefs.exportBundle()) ?: fid
+            return "✓ Синхронізовано з Google."
+        }
+        prefs.gdFileId = GoogleDrive.upload(token, null, prefs.exportBundle()) ?: ""
+        return "✓ Копію створено в Google."
+    }
+
+    private fun freshGoogleToken(): String? {
+        if (System.currentTimeMillis() < prefs.gdTokenExpiry && prefs.gdAccessToken.isNotBlank()) return prefs.gdAccessToken
+        val rt = prefs.gdRefreshToken
+        if (rt.isBlank()) return null
+        val r = GoogleDrive.refresh(rt) ?: return null
+        prefs.updateGoogleAccess(r.accessToken, r.expiresInSec)
+        return r.accessToken
+    }
+
+    private fun pushGoogle() {
+        val token = freshGoogleToken() ?: return
+        val id = prefs.gdFileId.ifBlank { GoogleDrive.findFileId(token) }
+        prefs.gdFileId = GoogleDrive.upload(token, id, prefs.exportBundle()) ?: (id ?: "")
+    }
+
+    private fun bundleTime(json: String?): Long {
+        if (json == null) return 0
+        val m = ua.savosh.ecoflowdiag.core.Json.parseOrNull(json) as? Map<*, *> ?: return 0
+        return (m["exportedAt"] as? Number)?.toLong() ?: 0
+    }
+
+    /** Запланувати авто-вивантаження в Google (після змін, з невеликою затримкою). */
+    private fun scheduleDrivePush() {
+        if (!prefs.gdConnected) return
+        driveJob?.cancel()
+        driveJob = viewModelScope.launch {
+            delay(3000)
+            withContext(Dispatchers.IO) { try { pushGoogle() } catch (e: Exception) { } }
+        }
+    }
 
     fun openBackup() { screen = Screen.BACKUP }
 
     fun dismissRestore() {
         offerRestore = false
         prefs.restoreOffered = true
-    }
-
-    /** Зберегти копію у вибраний користувачем файл (і запам'ятати для авто-копії). */
-    fun exportToUri(uri: Uri) {
-        viewModelScope.launch {
-            val ok = withContext(Dispatchers.IO) {
-                try {
-                    appCtx.contentResolver.openOutputStream(uri, "rwt")?.use {
-                        it.write(prefs.exportBundle().toByteArray(Charsets.UTF_8))
-                    }
-                    rememberBackupTarget(uri)
-                    true
-                } catch (e: Exception) {
-                    false
-                }
-            }
-            backupStatus = if (ok) "✓ Копію збережено. Далі оновлюватиметься автоматично." else "Не вдалося зберегти копію."
-        }
-    }
-
-    /** Відновити базу з вибраного файлу. */
-    fun importFromUri(uri: Uri) {
-        viewModelScope.launch {
-            val ok = withContext(Dispatchers.IO) {
-                try {
-                    val text = appCtx.contentResolver.openInputStream(uri)?.use {
-                        it.readBytes().toString(Charsets.UTF_8)
-                    } ?: return@withContext false
-                    if (!prefs.importBundle(text)) return@withContext false
-                    rememberBackupTarget(uri)
-                    true
-                } catch (e: Exception) {
-                    false
-                }
-            }
-            if (ok) {
-                reloadAll()
-                offerRestore = false
-                prefs.restoreOffered = true
-                backupStatus = "✓ Дані відновлено з файлу."
-            } else {
-                backupStatus = "Не вдалося прочитати файл копії."
-            }
-        }
-    }
-
-    private fun rememberBackupTarget(uri: Uri) {
-        try {
-            appCtx.contentResolver.takePersistableUriPermission(
-                uri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
-            )
-        } catch (e: Exception) {
-            // деякі провайдери не дають постійний доступ — авто-копія просто не оновлюватиме цей файл
-        }
-        prefs.backupUri = uri.toString()
     }
 
     /** Перечитати всі дані з пам'яті у стан (після відновлення). */
@@ -560,8 +613,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         demoHidden = prefs.demoHidden
     }
 
-    /** Чи є дані, але копію ще не налаштовано (для нагадування). */
-    val needsBackup: Boolean get() = prefs.hasAnyData() && prefs.backupUri.isBlank()
+    /** Чи є дані, але Google-копію ще не підключено (для нагадування). */
+    val needsBackup: Boolean get() = prefs.hasAnyData() && !prefs.gdConnected
 
     /** Банер нагадування про копію сховано на цю сесію. */
     var backupBannerHidden by mutableStateOf(false)
@@ -569,31 +622,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun hideBackupBanner() { backupBannerHidden = true }
 
-    private var backupJob: Job? = null
-
-    /** Тихо записати файл копії зараз. */
-    private fun writeBackup() {
-        val target = prefs.backupUri
-        if (target.isBlank()) return
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                appCtx.contentResolver.openOutputStream(Uri.parse(target), "rwt")?.use {
-                    it.write(prefs.exportBundle().toByteArray(Charsets.UTF_8))
-                }
-            } catch (e: Exception) {
-                // файл міг стати недоступним (видалено/немає доступу) — не критично
-            }
-        }
-    }
-
-    /** Запланувати авто-копію (після змін, з невеликою затримкою, щоб не писати на кожну літеру). */
+    /** Запланувати авто-копію в Google (після змін, з невеликою затримкою, щоб не писати на кожну літеру). */
     private fun scheduleBackup() {
-        if (prefs.backupUri.isBlank()) return
-        backupJob?.cancel()
-        backupJob = viewModelScope.launch {
-            delay(3000)
-            writeBackup()
-        }
+        scheduleDrivePush()
     }
 
     /** Чи налаштована відправка в спільну базу (Telegram). */
@@ -738,6 +769,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 updateError = "Не вдалося завантажити. Спробуйте «У браузері»."
                 return@launch
             }
+            if (withContext(Dispatchers.IO) { ApkUpdater.foreignSigner(ctx, apk) }) {
+                apk.delete()
+                updateError = "Файл оновлення підписаний чужим ключем — встановлення скасовано. " +
+                    "Завантаж застосунок лише з офіційної сторінки Savosh на GitHub."
+                return@launch
+            }
             downloadedApk = apk
             if (!ApkUpdater.canInstall(ctx)) {
                 ApkUpdater.openInstallPermission(ctx)
@@ -848,6 +885,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val i = stations.indexOfFirst { it.sn == sn }
         if (i < 0) return
         stations[i] = stations[i].copy(note = note.trim())
+        prefs.saveStations(stations.toList())
+        scheduleBackup()
+    }
+
+    /** Оновити примітку і теги станції разом. */
+    fun updateStationNoteTags(sn: String, note: String, tags: List<String>) {
+        val i = stations.indexOfFirst { it.sn == sn }
+        if (i < 0) return
+        stations[i] = stations[i].copy(note = note.trim(), tags = tags)
         prefs.saveStations(stations.toList())
         scheduleBackup()
     }
@@ -1191,6 +1237,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val date = dateText()
         prefs.saveReport(sn, Report.client(r, stations[i].note, date), technical = false)
         prefs.saveReport(sn, Report.technical(r, stations[i].note, date, historyFor(sn)), technical = true)
+        reportNewCodes(r)
     }
 
     // =========================================================== масове оновлення
@@ -1320,6 +1367,110 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private fun historyFor(sn: String): List<CodeEvent> = if (sn == diagSn) codeHistory else emptyList()
 
+    // ======================= Звіти: редактор + збережені =======================
+    val savedReportDocs = mutableStateListOf<SavedReport>()
+    var reportExtended by mutableStateOf<Boolean?>(null) // null = вид ще не обрано (показуємо плитки)
+    var reportDraft by mutableStateOf("")
+    var reportSavedMsg by mutableStateOf<String?>(null)
+    private var reportCtxSn: String? = null
+    private var reportCtxModel: String? = null
+
+    /** Відкрити екран звіту (вибір виду + збережені). */
+    fun openReport() {
+        reportExtended = null
+        reportDraft = ""
+        reportSavedMsg = null
+        reportCtxSn = diagSn ?: report?.sn
+        reportCtxModel = report?.model
+        reloadReportDocs()
+        screen = Screen.REPORT
+    }
+
+    /** Обрати вид звіту — згенерувати текст у редактор. */
+    fun chooseReport(extended: Boolean) {
+        reportExtended = extended
+        reportDraft = reportText(extended) ?: "ЗВІТ\n\nНемає даних діагностики для звіту."
+        reportSavedMsg = null
+    }
+
+    fun editReportDraft(t: String) {
+        reportDraft = t
+        reportSavedMsg = null
+    }
+
+    /** Зберегти (можливо відредагований) звіт у програмі. */
+    fun saveReportDraft() {
+        if (reportDraft.isBlank()) return
+        val id = prefs.nextReportDocId
+        prefs.nextReportDocId = id + 1
+        val doc = SavedReport(
+            id = id,
+            sn = reportCtxSn ?: "",
+            model = reportCtxModel,
+            dateMs = System.currentTimeMillis(),
+            extended = reportExtended ?: false,
+            text = reportDraft,
+        )
+        val list = prefs.loadReportDocs().toMutableList()
+        list.add(0, doc)
+        prefs.saveReportDocs(list)
+        reloadReportDocs()
+        reportSavedMsg = "✓ Звіт збережено в програмі."
+        scheduleBackup()
+    }
+
+    fun openSavedReport(doc: SavedReport) {
+        reportExtended = doc.extended
+        reportDraft = doc.text
+        reportCtxSn = doc.sn
+        reportCtxModel = doc.model
+        reportSavedMsg = null
+        screen = Screen.REPORT
+    }
+
+    fun deleteSavedReport(id: Long) {
+        prefs.saveReportDocs(prefs.loadReportDocs().filter { it.id != id })
+        reloadReportDocs()
+        scheduleBackup()
+    }
+
+    /** Повернутись від редактора до вибору виду. */
+    fun backFromReportEditor() {
+        reportExtended = null
+        reportSavedMsg = null
+    }
+
+    private fun reloadReportDocs() {
+        savedReportDocs.clear()
+        savedReportDocs.addAll(prefs.loadReportDocs())
+    }
+
+    /** Тихо надіслати нові коди помилок у особистий чат майстра (щоб вивчити й додати опис). */
+    private fun reportNewCodes(r: StationReport) {
+        if (!TelegramConfig.configured()) return
+        val sent = prefs.sentCodes()
+        val collected = LinkedHashMap<String, String>()
+        fun consider(ind: Indicator) {
+            val key = ind.codeKey ?: return
+            if (ind.level.rank < Level.WARN.rank) return
+            if (key in sent || key in collected) return
+            val known = if (EcoflowCodes.hasExplanation(key)) "відомий" else "НОВИЙ"
+            collected[key] = "• $key = ${ind.value} — ${ind.title} [$known]"
+        }
+        r.protections.forEach(::consider)
+        r.packs.forEach { pk -> pk.codes.forEach(::consider) }
+        if (collected.isEmpty()) return
+        val msg = buildString {
+            append("🔧 Коди зі станції ").append(r.model ?: "?")
+            append(" (").append(r.generation.title).append(")\n")   // без SN: коди анонімні
+            append(collected.values.joinToString("\n"))
+        }
+        val keys = collected.keys.toList()
+        viewModelScope.launch(Dispatchers.IO) {
+            if (TelegramSubmit.sendCodes(msg)) prefs.addSentCodes(keys)
+        }
+    }
+
     fun codeNote(key: String): String = codeNotes[key] ?: ""
 
     /** Зберегти примітку до коду (порожній текст — видалити) і одразу перерахувати звіт. */
@@ -1353,7 +1504,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Застосунок згорнуто: розриваємо з'єднання, щоб воно не "зависало" у фоні. */
     fun onAppBackground() {
-        writeBackup() // тиха авто-копія при згортанні (одразу)
+        if (prefs.gdConnected) viewModelScope.launch(Dispatchers.IO) { try { pushGoogle() } catch (e: Exception) { } }
         val sn = diagSn
         if (capTestRunning) {
             addLog("Застосунок згорнуто, але йде тест ємності — зв'язок не розриваємо")
@@ -1501,6 +1652,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
         Screen.RAW, Screen.LOG, Screen.CAPTEST, Screen.CONTROL -> {
             screen = if (diagSn != null) Screen.DIAG else Screen.STATIONS
+            true
+        }
+        Screen.REPORT -> {
+            if (reportExtended != null) {
+                reportExtended = null
+                reportSavedMsg = null
+            } else {
+                screen = if (diagSn != null) Screen.DIAG else Screen.STATIONS
+            }
             true
         }
         Screen.DIAG -> if (capTestRunning) {

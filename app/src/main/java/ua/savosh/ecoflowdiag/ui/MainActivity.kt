@@ -71,6 +71,7 @@ private fun App(vm: AppViewModel) {
     BackHandler(enabled = vm.screen != Screen.LOGIN && vm.screen != Screen.STATIONS) { vm.back() }
     if (vm.offerRestore && vm.screen != Screen.LOGIN) RestoreDialog(vm)
     else if (vm.whatsNew.isNotEmpty() && vm.screen != Screen.LOGIN) WhatsNewDialog(vm)
+    else if (vm.showShareConsent && vm.screen != Screen.LOGIN) ShareConsentDialog(vm)
     when (vm.screen) {
         Screen.LOGIN -> LoginScreen(vm)
         Screen.STATIONS -> StationsScreen(vm)
@@ -87,5 +88,6 @@ private fun App(vm: AppViewModel) {
         Screen.KNOWLEDGE -> KnowledgeScreen(vm)
         Screen.NOTES -> NotesScreen(vm)
         Screen.BACKUP -> BackupScreen(vm)
+        Screen.REPORT -> ReportScreen(vm)
     }
 }

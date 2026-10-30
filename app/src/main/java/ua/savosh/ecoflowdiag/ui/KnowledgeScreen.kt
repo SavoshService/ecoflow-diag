@@ -367,6 +367,37 @@ private fun PhotoThumb(path: String, onRemove: () -> Unit) {
 
 // ============================= «Що нового» =============================
 
+/** Одноразове повідомлення: що застосунок сам надсилає у спільну базу Savosh. Відправка лишається автоматичною. */
+@Composable
+fun ShareConsentDialog(vm: AppViewModel) {
+    AlertDialog(
+        onDismissRequest = {},   // лише кнопкою — щоб людина точно прочитала
+        title = { Text("📖 Спільна база майстрів", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text(
+                    "Статті, які ти додаєш у талмуд (текст і фото), автоматично надсилаються " +
+                        "у спільну базу Savosh Service — Telegram-групу майстрів, щоб знання бачили всі.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Нові коди помилок станцій теж надсилаються — анонімно: лише модель і код, " +
+                        "без серійного номера.",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Пароль EcoFlow, замовлення, склад і нотатки нікуди не надсилаються.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = { TextButton(onClick = { vm.acceptShareConsent() }) { Text("Зрозуміло, погоджуюсь") } },
+    )
+}
+
 @Composable
 fun WhatsNewDialog(vm: AppViewModel) {
     AlertDialog(

@@ -1,9 +1,8 @@
 package ua.savosh.ecoflowdiag.ui
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -32,19 +31,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
-private const val BACKUP_FILE_NAME = "Savosh_Service_backup.json"
-private val OPEN_TYPES = arrayOf("application/json", "text/*", "*/*")
-
+/** Резервна копія — лише через Google-акаунт (прихована тека застосунку на Google Диску). */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BackupScreen(vm: AppViewModel) {
-    val createLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
-        uri?.let { vm.exportToUri(it) }
-    }
-    val openLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let { vm.importFromUri(it) }
-    }
-
     Scaffold(
         topBar = {
             TopAppBar(
@@ -62,62 +52,79 @@ fun BackupScreen(vm: AppViewModel) {
                     Text("Навіщо це", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "Коли видаляєш застосунок, Android стирає всі його дані. Збережи копію у файл — і замовлення, " +
-                            "склад, замітки й талмуд не загубляться. Обери місце «Google Диск» у вікні — і копія буде в хмарі. " +
+                        "Коли видаляєш застосунок, Android стирає всі його дані. Увійди через Google — і станції, " +
+                            "замовлення, склад, замітки й талмуд зберігатимуться у твоєму Google Диску самі. " +
                             "Пароль EcoFlow у копію НЕ потрапляє.",
                         style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
 
-            Button(onClick = { createLauncher.launch(BACKUP_FILE_NAME) }, modifier = Modifier.fillMaxWidth()) {
-                Text("💾 Зберегти копію (у файл / на Google Диск)")
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Text("☁️ Google-акаунт (автоматично)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(6.dp))
+                    if (vm.gdConnected) {
+                        Text(
+                            "✓ Підключено: ${vm.gdEmail.ifBlank { "Google акаунт" }}",
+                            style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "Дані самі зберігаються в хмарі після кожної зміни. Перевстановив застосунок — " +
+                                "увійди цим самим акаунтом, і все підтягнеться автоматично.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(onClick = { vm.syncGoogleNow() }) { Text("Синхронізувати зараз") }
+                            TextButton(onClick = { vm.disconnectGoogle() }) { Text("Відключити") }
+                        }
+                    } else if (vm.gdConfigured) {
+                        Text(
+                            "Увійди один раз своїм Google-акаунтом — і копія оновлюватиметься сама. " +
+                                "Нічого вибирати вручну не треба.",
+                            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                        Spacer(Modifier.height(10.dp))
+                        Button(onClick = { vm.connectGoogle() }, modifier = Modifier.fillMaxWidth()) {
+                            Text("Увійти через Google")
+                        }
+                    } else {
+                        Text(
+                            "Синхронізацію Google не налаштовано в цій збірці.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    }
+                    vm.gdStatus?.let {
+                        Spacer(Modifier.height(8.dp))
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    }
+                }
             }
-            OutlinedButton(onClick = { openLauncher.launch(OPEN_TYPES) }, modifier = Modifier.fillMaxWidth()) {
-                Text("📂 Відновити з файлу")
-            }
-
-            if (vm.hasBackupTarget) {
-                Text(
-                    "✓ Авто-копія увімкнена: файл оновлюється сам щоразу, коли згортаєш застосунок.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary,
-                )
-            } else {
-                Text(
-                    "Після першого збереження копія оновлюватиметься автоматично при виході із застосунку.",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            vm.backupStatus?.let {
-                Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
-            }
-
-            Text(
-                "Порада: зберігай копію на Google Диск — тоді навіть при заміні телефона дані легко відновити " +
-                    "через «Відновити з файлу».",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
         }
     }
 }
 
-/** Вікно при чистій інсталяції: запропонувати знайти файл копії й відновити дані. */
+/** Вікно при чистій інсталяції: увійти через Google — і дані підтягнуться з хмари. */
 @Composable
 fun RestoreDialog(vm: AppViewModel) {
-    val openLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) vm.importFromUri(uri) else vm.dismissRestore()
-    }
     AlertDialog(
         onDismissRequest = { vm.dismissRestore() },
         title = { Text("Відновити дані?", fontWeight = FontWeight.Bold) },
         text = {
             Text(
-                "Якщо раніше ти зберігав копію даних (у файл або на Google Диск) — знайди її, і я відновлю " +
+                "Якщо раніше ти входив через Google — увійди тим самим акаунтом, і я відновлю станції, " +
                     "замовлення, склад, замітки й талмуд. Якщо копії немає — просто почни з чистого.",
             )
         },
-        confirmButton = { TextButton(onClick = { openLauncher.launch(OPEN_TYPES) }) { Text("Знайти файл копії") } },
+        confirmButton = {
+            TextButton(onClick = { vm.dismissRestore(); vm.connectGoogle() }) { Text("Увійти через Google") }
+        },
         dismissButton = { TextButton(onClick = { vm.dismissRestore() }) { Text("Почати заново") } },
     )
 }

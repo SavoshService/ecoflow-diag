@@ -70,11 +70,14 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          # секрети застосунку (у коді їх немає): без них вимикаються лише Telegram-відправка / вхід Google
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
         run: |
           chmod +x gradlew
           ./gradlew --no-daemon assembleRelease
           mkdir -p out
-          cp app/build/outputs/apk/release/app-release.apk out/savosh-ecoflow-diag.apk
+          cp app/build/outputs/apk/release/SavoshEcoFlow-*-release.apk out/savosh-ecoflow-diag.apk
 
       - name: Remove keystore
         if: always()

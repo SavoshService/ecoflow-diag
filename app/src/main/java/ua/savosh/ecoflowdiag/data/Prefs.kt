@@ -20,6 +20,17 @@ data class StationEntry(
     val lastCheckMs: Long?,
     val lastSoc: Double? = null,
     val online: Boolean? = null,
+    val tags: List<String> = emptyList(),
+)
+
+/** Збережений (можливо відредагований майстром) звіт. */
+data class SavedReport(
+    val id: Long,
+    val sn: String,
+    val model: String?,
+    val dateMs: Long,
+    val extended: Boolean,
+    val text: String,
 )
 
 /** Налаштування та список станцій. Зберігається лише локально на телефоні. */
@@ -74,6 +85,7 @@ class Prefs(context: Context) {
                 lastCheckMs = (m["lastCheckMs"] as? Number)?.toLong(),
                 lastSoc = (m["lastSoc"] as? Number)?.toDouble(),
                 online = m["online"] as? Boolean,
+                tags = (m["tags"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList(),
             )
         }
     }
@@ -90,6 +102,7 @@ class Prefs(context: Context) {
                 "lastCheckMs" to it.lastCheckMs,
                 "lastSoc" to it.lastSoc,
                 "online" to it.online,
+                "tags" to it.tags,
             )
         }
         sp.edit().putString("stations", Json.stringify(arr)).apply()
@@ -104,6 +117,46 @@ class Prefs(context: Context) {
     fun deleteReport(sn: String) = sp.edit().remove(reportKey(sn, false)).remove(reportKey(sn, true)).remove("capTest_$sn").apply()
 
     private fun reportKey(sn: String, technical: Boolean) = if (technical) "reportTech_$sn" else "report_$sn"
+
+    // ===== Збережені звіти майстра (список) =====
+    fun loadReportDocs(): List<SavedReport> {
+        val arr = Json.parseOrNull(sp.getString("saved_docs", "[]") ?: "[]") as? List<*> ?: return emptyList()
+        return arr.mapNotNull { e ->
+            val m = e as? Map<*, *> ?: return@mapNotNull null
+            SavedReport(
+                id = (m["id"] as? Number)?.toLong() ?: return@mapNotNull null,
+                sn = m["sn"] as? String ?: "",
+                model = m["model"] as? String,
+                dateMs = (m["dateMs"] as? Number)?.toLong() ?: 0L,
+                extended = m["extended"] as? Boolean ?: false,
+                text = m["text"] as? String ?: "",
+            )
+        }
+    }
+
+    fun saveReportDocs(list: List<SavedReport>) {
+        val arr = list.map {
+            linkedMapOf<String, Any?>(
+                "id" to it.id, "sn" to it.sn, "model" to it.model,
+                "dateMs" to it.dateMs, "extended" to it.extended, "text" to it.text,
+            )
+        }
+        sp.edit().putString("saved_docs", Json.stringify(arr)).apply()
+    }
+
+    var nextReportDocId: Long
+        get() = sp.getLong("saved_docs_next", 1L)
+        set(v) = sp.edit().putLong("saved_docs_next", v).apply()
+
+    // ===== Коди, вже відправлені в бот (щоб не слати двічі) =====
+    fun sentCodes(): Set<String> =
+        (sp.getString("sent_codes", "") ?: "").split('\n').filter { it.isNotBlank() }.toSet()
+
+    fun addSentCodes(keys: Collection<String>) {
+        val s = LinkedHashSet(sentCodes())
+        s.addAll(keys)
+        sp.edit().putString("sent_codes", s.joinToString("\n")).apply()
+    }
 
     /** Останній результат тесту реальної ємності станції (текст звіту). */
     fun saveCapTest(sn: String, text: String) = sp.edit().putString("capTest_$sn", text).apply()
@@ -269,6 +322,11 @@ class Prefs(context: Context) {
         get() = sp.getString("whatsnew_version", "") ?: ""
         set(v) = sp.edit().putString("whatsnew_version", v).apply()
 
+    /** Чи бачила людина вікно згоди про надсилання статей і кодів у спільну базу. */
+    var shareConsentShown: Boolean
+        get() = sp.getBoolean("share_consent_shown", false)
+        set(v) = sp.edit().putBoolean("share_consent_shown", v).apply()
+
     var nextArticleId: Long
         get() = sp.getLong("kb_next_id", 1L)
         set(v) = sp.edit().putLong("kb_next_id", v).apply()
@@ -393,6 +451,7 @@ class Prefs(context: Context) {
             "crm_parts" to section("crm_parts"),
             "kb_articles" to section("kb_articles"),
             "notes" to section("notes"),
+            "saved_docs" to section("saved_docs"),
             "settings" to linkedMapOf<String, Any?>(
                 "email" to email,
                 "host" to host,
@@ -403,6 +462,7 @@ class Prefs(context: Context) {
                 "crm_next_part_id" to nextPartId,
                 "kb_next_id" to nextArticleId,
                 "notes_next_id" to nextNoteId,
+                "saved_docs_next" to nextReportDocId,
             ),
         )
         return Json.stringify(m)
@@ -414,7 +474,7 @@ class Prefs(context: Context) {
         if (m["app"] != APP_TAG) return false
         val e = sp.edit()
         fun put(key: String) { m[key]?.let { e.putString(key, Json.stringify(it)) } }
-        put("stations"); put("crm_orders"); put("crm_parts"); put("kb_articles"); put("notes")
+        put("stations"); put("crm_orders"); put("crm_parts"); put("kb_articles"); put("notes"); put("saved_docs")
         (m["settings"] as? Map<*, *>)?.let { s ->
             (s["email"] as? String)?.let { e.putString("email", it) }
             (s["host"] as? String)?.let { e.putString("host", it) }
@@ -425,9 +485,49 @@ class Prefs(context: Context) {
             (s["crm_next_part_id"] as? Number)?.let { e.putLong("crm_next_part_id", it.toLong()) }
             (s["kb_next_id"] as? Number)?.let { e.putLong("kb_next_id", it.toLong()) }
             (s["notes_next_id"] as? Number)?.let { e.putLong("notes_next_id", it.toLong()) }
+            (s["saved_docs_next"] as? Number)?.let { e.putLong("saved_docs_next", it.toLong()) }
         }
         e.apply()
         return true
+    }
+
+    // ===================== Google Диск (синхронізація) =====================
+
+    var gdEmail: String
+        get() = sp.getString("gd_email", "") ?: ""
+        set(v) = sp.edit().putString("gd_email", v).apply()
+
+    var gdFileId: String
+        get() = sp.getString("gd_file_id", "") ?: ""
+        set(v) = sp.edit().putString("gd_file_id", v).apply()
+
+    var gdTokenExpiry: Long
+        get() = sp.getLong("gd_token_exp", 0L)
+        set(v) = sp.edit().putLong("gd_token_exp", v).apply()
+
+    /** Токени зберігаються в зашифрованому сховищі (Android Keystore). */
+    val gdRefreshToken: String get() = secure.get("gd_refresh") ?: ""
+    val gdAccessToken: String get() = secure.get("gd_access") ?: ""
+    val gdConnected: Boolean get() = gdRefreshToken.isNotBlank() || gdAccessToken.isNotBlank()
+
+    fun saveGoogleTokens(refresh: String, access: String, expiresInSec: Long, email: String) {
+        secure.put("gd_refresh", refresh)
+        secure.put("gd_access", access)
+        gdTokenExpiry = System.currentTimeMillis() + expiresInSec * 1000 - 60_000
+        gdEmail = email
+    }
+
+    fun updateGoogleAccess(access: String, expiresInSec: Long) {
+        secure.put("gd_access", access)
+        gdTokenExpiry = System.currentTimeMillis() + expiresInSec * 1000 - 60_000
+    }
+
+    fun clearGoogle() {
+        secure.put("gd_refresh", null)
+        secure.put("gd_access", null)
+        gdEmail = ""
+        gdFileId = ""
+        gdTokenExpiry = 0
     }
 
     private companion object {

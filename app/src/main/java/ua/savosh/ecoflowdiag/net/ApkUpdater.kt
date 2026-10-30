@@ -2,6 +2,8 @@ package ua.savosh.ecoflowdiag.net
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageInfo
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -9,6 +11,7 @@ import androidx.core.content.FileProvider
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URI
+import java.security.MessageDigest
 
 /**
  * Оновлення в один дотик: застосунок сам завантажує APK і відкриває системний інсталятор.
@@ -21,7 +24,8 @@ object ApkUpdater {
     fun download(ctx: Context, url: String, onProgress: (Int) -> Unit): File? {
         return try {
             require(url.startsWith("https://")) { "Дозволено лише HTTPS" }
-            val out = File(ctx.externalCacheDir ?: ctx.cacheDir, "update.apk")
+            // внутрішній кеш: на старих Android зовнішній кеш могли читати/підміняти інші застосунки
+            val out = File(ctx.cacheDir, "update.apk")
             if (out.exists()) out.delete()
             fetch(url, out, onProgress, 0)
             if (out.length() > 0L) out else null
@@ -61,6 +65,39 @@ object ApkUpdater {
                 }
             }
         }
+    }
+
+    /**
+     * Чи підписаний завантажений APK чужим ключем (підміна файлу). true — точно чужий: не встановлювати.
+     * Якщо Android не віддав підписи (буває на деяких версіях), повертає false — тоді все одно
+     * захищає системний інсталятор: поверх нашого застосунку він не поставить APK з іншим підписом.
+     */
+    fun foreignSigner(ctx: Context, apk: File): Boolean = try {
+        val pm = ctx.packageManager
+        val archive = pm.getPackageArchiveInfo(apk.absolutePath, signFlags())
+        if (archive == null) {
+            false
+        } else if (archive.packageName != ctx.packageName) {
+            true
+        } else {
+            val mine = signers(pm.getPackageInfo(ctx.packageName, signFlags()))
+            val theirs = signers(archive)
+            mine.isNotEmpty() && theirs.isNotEmpty() && mine != theirs
+        }
+    } catch (e: Exception) {
+        false
+    }
+
+    @Suppress("DEPRECATION")
+    private fun signFlags(): Int =
+        if (Build.VERSION.SDK_INT >= 28) PackageManager.GET_SIGNING_CERTIFICATES else PackageManager.GET_SIGNATURES
+
+    /** SHA-256 сертифікатів підпису пакета. */
+    @Suppress("DEPRECATION")
+    private fun signers(pi: PackageInfo): Set<String> {
+        val certs = if (Build.VERSION.SDK_INT >= 28) pi.signingInfo?.apkContentsSigners else pi.signatures
+        val md = MessageDigest.getInstance("SHA-256")
+        return certs.orEmpty().map { s -> md.digest(s.toByteArray()).joinToString("") { "%02x".format(it) } }.toSet()
     }
 
     /** Чи дозволено застосунку встановлювати APK (Android 8+ вимагає окремого дозволу). */

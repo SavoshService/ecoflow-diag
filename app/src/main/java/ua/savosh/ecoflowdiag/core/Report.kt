@@ -11,7 +11,72 @@ import ua.savosh.ecoflowdiag.core.Analyzer.fmt3
  */
 object Report {
 
-    fun client(r: StationReport, note: String?, dateText: String): String = build(r, note, dateText, technical = false)
+    fun client(r: StationReport, note: String?, dateText: String): String = buildShort(r, note, dateText)
+
+    /** Оцінка батареї ЛИШЕ за здоров'ям (SOH). Помилки/коди станції на це не впливають. */
+    private fun batteryBySoh(soh: Double?): String = when {
+        soh == null -> "Недостатньо даних"
+        soh >= 80 -> "Добрий"
+        soh >= 65 -> "Потребує уваги"
+        else -> "Незадовільний"
+    }
+
+    /** Загальний стан для короткого звіту — теж за здоров'ям батареї, без помилок. */
+    private fun overallBySoh(soh: Double?): String = when {
+        soh == null -> "Недостатньо даних"
+        soh >= 80 -> "Працездатна"
+        soh >= 65 -> "Працездатна (помітний знос батареї)"
+        else -> "Батарея зношена"
+    }
+
+    /** Порожній блок підпису — майстер вписує свою назву сервісу. Без автопідпису. */
+    private fun signatureBlock(): String =
+        "──────────────────────\n" +
+            "Назва сервісу: ____________________\n" +
+            "Контакти: ____________________\n" +
+            "Майстер: ____________________\n" +
+            "Підпис: ____________________\n"
+
+    /** Короткий звіт — зрозумілий клієнту, лише ключові показники, без вигаданих значень. */
+    private fun buildShort(r: StationReport, note: String?, dateText: String): String {
+        val sb = StringBuilder()
+        sb.appendLine("ЗВІТ ПРО СТАН ЗАРЯДНОЇ СТАНЦІЇ")
+        sb.appendLine()
+        sb.appendLine("Модель: ${r.model ?: "не визначена"}")
+        sb.appendLine("Серійний номер: ${r.sn}")
+        sb.appendLine("Дата перевірки: $dateText")
+        sb.appendLine()
+
+        // Стан батареї — ТІЛЬКИ за SOH (здоров'ям). Помилки/коди станції на оцінку не впливають.
+        val soh = r.packs.mapNotNull { it.sohEffective }.minOrNull()
+        sb.appendLine("Стан батареї: ${batteryBySoh(soh)}")
+        if (soh != null) sb.appendLine("Здоров'я батареї (SOH): ${fmt0(soh)}%")
+        if (r.totalFullWh != null && r.totalDesignWh != null && r.totalDesignWh > 0) {
+            sb.appendLine(
+                "Залишкова ємність: ≈${fmt0(r.totalFullWh)} з ${fmt0(r.totalDesignWh)} Вт·год " +
+                    "(${fmt0(r.totalFullWh * 100 / r.totalDesignWh)}%)",
+            )
+        }
+        val cycles = r.packs.mapNotNull { it.cycles }.maxOrNull()
+        sb.appendLine("Кількість циклів: ${cycles?.toString() ?: "Немає даних"}")
+        sb.appendLine("Напрацювання: ${if (r.usage.isNotEmpty()) r.usage.joinToString("; ") { it.second } else "Немає даних"}")
+        val out = r.energy.filter { it.first.contains("вихід", ignoreCase = true) }
+        sb.appendLine("Видано енергії: ${if (out.isNotEmpty()) out.joinToString("; ") { it.second } else "Немає даних"}")
+        sb.appendLine()
+
+        sb.appendLine("Загальний стан: ${overallBySoh(soh)}")
+        sb.appendLine("Висновок майстра: ${note?.takeIf { it.isNotBlank() } ?: "______________________________"}")
+        sb.appendLine()
+
+        sb.appendLine("Перевірено майстром (заповнити за потреби):")
+        sb.appendLine("  Вихід 230 В: ____________")
+        sb.appendLine("  USB-виходи: ____________")
+        sb.appendLine("  Заряджання від мережі: ____________")
+        sb.appendLine()
+
+        sb.append(signatureBlock())
+        return sb.toString()
+    }
 
     /** [history] — історія змін кодів станції (новіші першими); у звіт іде не більше [HISTORY_IN_REPORT] подій. */
     fun technical(r: StationReport, note: String?, dateText: String, history: List<CodeEvent> = emptyList()): String =
@@ -27,8 +92,8 @@ object Report {
         history: List<CodeEvent> = emptyList(),
     ): String {
         val sb = StringBuilder()
-        sb.appendLine(if (technical) "SAVOSH SERVICE — технічний звіт BMS" else "SAVOSH SERVICE — діагностика батареї")
-        sb.appendLine("Дата: $dateText")
+        sb.appendLine("РОЗШИРЕНИЙ ЗВІТ — діагностика станції")
+        sb.appendLine("Дата перевірки: $dateText")
         sb.appendLine("Станція: ${r.model ?: "модель не визначена"} · SN ${r.sn}")
         if (!note.isNullOrBlank()) sb.appendLine("Примітка: $note")
         if (technical) sb.appendLine("Покоління: ${r.generation.title} · параметрів: ${r.paramCount}")
@@ -127,7 +192,9 @@ object Report {
             for ((k, v) in r.other) sb.appendLine("  $k: $v")
         }
         sb.appendLine()
-        sb.appendLine("Дані зчитано з BMS станції. Savosh Service.")
+        sb.appendLine("Дані зчитано з BMS станції.")
+        sb.appendLine()
+        sb.append(signatureBlock())
         return sb.toString()
     }
 

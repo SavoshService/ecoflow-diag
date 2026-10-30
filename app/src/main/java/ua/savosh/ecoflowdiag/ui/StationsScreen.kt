@@ -17,6 +17,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -52,6 +54,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -63,13 +66,22 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import ua.savosh.ecoflowdiag.core.Level
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.draw.scale
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.sp
 import ua.savosh.ecoflowdiag.data.StationEntry
@@ -85,6 +97,8 @@ fun StationsScreen(vm: AppViewModel) {
     var confirmDelete by remember { mutableStateOf<StationEntry?>(null) }
     var confirmLogout by remember { mutableStateOf(false) }
     var showCoffee by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+    var filter by remember { mutableStateOf(StFilter.ALL) }
     val context = LocalContext.current
 
     Scaffold(
@@ -103,7 +117,18 @@ fun StationsScreen(vm: AppViewModel) {
                     }
                 },
                 actions = {
+                    // Кнопка входу/синхронізації Google — завжди видима, веде на екран копії
+                    IconButton(onClick = { vm.openBackup() }) {
+                        GoogleIcon()
+                    }
+                    // Instagram Savosh Service
+                    IconButton(onClick = { openUrl(context, "https://instagram.com/savosh_service") }) {
+                        InstagramIcon()
+                    }
                     if (vm.loggedIn) {
+                        IconButton(onClick = { showAdd = true }) {
+                            Icon(Icons.Filled.Add, contentDescription = "Додати станцію")
+                        }
                         IconButton(
                             onClick = { if (vm.refreshAllBusy) vm.stopRefreshAll() else vm.refreshAllStations() },
                             enabled = vm.stations.isNotEmpty(),
@@ -209,6 +234,18 @@ fun StationsScreen(vm: AppViewModel) {
                     }
                 }
             } else {
+                val attentionCount = vm.stations.count { it.online == false || (it.lastSoh != null && it.lastSoh < 80) }
+                if (attentionCount > 0) {
+                    AttentionBanner(
+                        count = attentionCount,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        onClick = { filter = StFilter.ATTENTION },
+                    )
+                }
+                if (vm.stations.size > 1) {
+                    StationFilters(query, { query = it }, filter, { filter = it })
+                }
+                val shown = vm.stations.filter { stationMatches(it, query, filter) }
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp),
@@ -229,13 +266,23 @@ fun StationsScreen(vm: AppViewModel) {
                         }
                     }
                 }
-                items(vm.stations, key = { it.sn }) { st ->
+                if (shown.isEmpty()) {
+                    item(key = "no_match") {
+                        Text(
+                            "Нічого не знайдено за фільтром.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 8.dp),
+                        )
+                    }
+                }
+                items(shown, key = { it.sn }) { st ->
                     StationCard(
                         st = st,
                         onOpen = { vm.openDiag(st.sn) },
                         onEditNote = { editNoteFor = st },
                         onShare = { tech ->
-                            vm.savedReport(st.sn, tech)?.let { shareText(context, it, "${if (tech) "Технічний звіт" else "Звіт"} ${st.sn}") }
+                            vm.savedReport(st.sn, tech)?.let { shareText(context, it, "${if (tech) "Розширений звіт" else "Короткий звіт"} ${st.sn}") }
                         },
                         hasReport = vm.savedReport(st.sn) != null,
                         onInfo = { vm.openStationInfo(st.sn) },
@@ -260,8 +307,8 @@ fun StationsScreen(vm: AppViewModel) {
         )
     }
     editNoteFor?.let { st ->
-        NoteDialog(st.note, onDismiss = { editNoteFor = null }) {
-            vm.updateNote(st.sn, it)
+        NoteDialog(st.note, st.tags, onDismiss = { editNoteFor = null }) { note, tags ->
+            vm.updateStationNoteTags(st.sn, note, tags)
             editNoteFor = null
         }
     }
@@ -301,6 +348,17 @@ private fun StationCard(
     onDelete: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
+    // Акцент за станом (здоров'я + онлайн), без впливу кодів помилок
+    val accent = levelColor(
+        when {
+            st.lastCheckMs == null -> Level.UNKNOWN
+            st.online == false -> Level.BAD
+            st.lastSoh == null -> Level.UNKNOWN
+            st.lastSoh < 65 -> Level.BAD
+            st.lastSoh < 80 -> Level.WARN
+            else -> Level.GOOD
+        },
+    )
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -308,12 +366,25 @@ private fun StationCard(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
     ) {
-        Row(Modifier.padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.width(5.dp).fillMaxHeight().background(accent))
+            Row(
+                Modifier.weight(1f).padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
             Column(Modifier.weight(1f)) {
                 Text(st.model ?: "Модель визначиться після підключення", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                 Text(st.sn, fontFamily = Mono, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 if (st.note.isNotBlank()) {
                     Text(st.note, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (st.tags.isNotEmpty()) {
+                    Text(
+                        st.tags.joinToString("  ") { "#$it" },
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.SemiBold,
+                    )
                 }
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -352,6 +423,7 @@ private fun StationCard(
                     DropdownMenuItem(text = { Text("Видалити") }, onClick = { menu = false; onDelete() })
                 }
             }
+            }
         }
     }
 }
@@ -364,6 +436,127 @@ private fun OnlineDot(online: Boolean?) {
         null -> "● невідомо" to levelColor(Level.UNKNOWN)
     }
     Text(txt, style = MaterialTheme.typography.labelMedium, color = color, fontWeight = FontWeight.SemiBold)
+}
+
+/** Іконка Google як на робочому столі Android: біла плитка з кольоровою «G» (червоний, жовтий, зелений, синій). */
+@Composable
+private fun GoogleIcon(dim: Dp = 28.dp) {
+    Canvas(Modifier.size(dim)) {
+        val s = size.minDimension
+        drawRoundRect(color = Color.White, cornerRadius = CornerRadius(s * 0.24f, s * 0.24f))
+        val d = s * 0.6f                       // діаметр «G»
+        val w = d * 0.2f                       // товщина лінії
+        val r = d / 2f - w / 2f
+        val c = Offset(s / 2f, s / 2f)
+        val tl = Offset(c.x - r, c.y - r)
+        val arc = Size(r * 2f, r * 2f)
+        val st = Stroke(w)
+        // кути: 0° — праворуч, за годинниковою стрілкою; проміж -40°..0° — виріз «G»
+        drawArc(Color(0xFFEA4335), -140f, 100f, false, tl, arc, style = st)   // червоний — верх
+        drawArc(Color(0xFFFBBC05), 140f, 80f, false, tl, arc, style = st)     // жовтий — ліво
+        drawArc(Color(0xFF34A853), 40f, 100f, false, tl, arc, style = st)     // зелений — низ
+        drawArc(Color(0xFF4285F4), 0f, 40f, false, tl, arc, style = st)       // синій — низ праворуч
+        drawRect(Color(0xFF4285F4), topLeft = Offset(c.x, c.y - w / 2f), size = Size(d / 2f, w))  // перекладина
+    }
+}
+
+/** Іконка Instagram як на робочому столі Android: градієнтна плитка з білим фотоапаратом. */
+@Composable
+private fun InstagramIcon(dim: Dp = 28.dp) {
+    Canvas(Modifier.size(dim)) {
+        val s = size.minDimension
+        val bg = Brush.radialGradient(
+            colors = listOf(
+                Color(0xFFFFDC80), Color(0xFFFCAF45), Color(0xFFF77737), Color(0xFFF56040),
+                Color(0xFFFD1D1D), Color(0xFFE1306C), Color(0xFFC13584), Color(0xFF833AB4), Color(0xFF5851DB),
+            ),
+            center = Offset(s * 0.28f, s * 1.05f),
+            radius = s * 1.25f,
+        )
+        drawRoundRect(brush = bg, cornerRadius = CornerRadius(s * 0.24f, s * 0.24f))
+        val stroke = Stroke(s * 0.075f)
+        val pad = s * 0.22f
+        drawRoundRect(
+            color = Color.White,
+            topLeft = Offset(pad, pad),
+            size = Size(s - pad * 2f, s - pad * 2f),
+            cornerRadius = CornerRadius(s * 0.16f, s * 0.16f),
+            style = stroke,
+        )
+        drawCircle(Color.White, radius = s * 0.135f, center = Offset(s / 2f, s / 2f), style = stroke)
+        drawCircle(Color.White, radius = s * 0.04f, center = Offset(s * 0.665f, s * 0.335f))
+    }
+}
+
+@Composable
+private fun AttentionBanner(count: Int, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Card(
+        modifier = modifier.fillMaxWidth().clickable(onClick = onClick),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+    ) {
+        Row(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("⚠️", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.width(10.dp))
+            Text(
+                "Потребують уваги: $count. Торкніться, щоб показати.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+    }
+}
+
+private enum class StFilter(val title: String) {
+    ALL("Усі"), ONLINE("Онлайн"), OFFLINE("Офлайн"), ATTENTION("Увага")
+}
+
+private fun stationMatches(st: StationEntry, query: String, filter: StFilter): Boolean {
+    val q = query.trim()
+    val mq = q.isEmpty() ||
+        st.sn.contains(q, ignoreCase = true) ||
+        st.note.contains(q, ignoreCase = true) ||
+        (st.model?.contains(q, ignoreCase = true) == true)
+    val attention = st.online == false || (st.lastSoh != null && st.lastSoh < 80)
+    val mf = when (filter) {
+        StFilter.ALL -> true
+        StFilter.ONLINE -> st.online == true
+        StFilter.OFFLINE -> st.online == false
+        StFilter.ATTENTION -> attention
+    }
+    return mq && mf
+}
+
+@Composable
+private fun StationFilters(
+    query: String,
+    onQuery: (String) -> Unit,
+    filter: StFilter,
+    onFilter: (StFilter) -> Unit,
+) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = onQuery,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Пошук за SN або приміткою") },
+        )
+        Spacer(Modifier.height(6.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            for (f in StFilter.entries) {
+                if (f == filter) {
+                    Button(onClick = { onFilter(f) }, modifier = Modifier.weight(1f)) {
+                        Text(f.title, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                    }
+                } else {
+                    OutlinedButton(onClick = { onFilter(f) }, modifier = Modifier.weight(1f)) {
+                        Text(f.title, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                    }
+                }
+            }
+        }
+    }
 }
 
 /** Демо-станція: пульсуюча картка «спробувати програму на несправжніх даних». */
@@ -491,8 +684,13 @@ private fun BackupReminder(modifier: Modifier = Modifier, onSetup: () -> Unit, o
 
 @Composable
 private fun QuickTile(label: String, modifier: Modifier = Modifier, onClick: () -> Unit, icon: @Composable () -> Unit) {
+    val src = remember { MutableInteractionSource() }
+    val pressed by src.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed) 0.94f else 1f, label = "tilePress")
     Card(
-        modifier = modifier.clickable(onClick = onClick),
+        modifier = modifier
+            .scale(scale)
+            .clickable(interactionSource = src, indication = null, onClick = onClick),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
     ) {
@@ -655,21 +853,49 @@ private fun HelpStep(n: String, text: String) {
     }
 }
 
+private val PRESET_TAGS = listOf("BMS", "АКБ", "Інвертер", "Плата", "Дисплей", "Зарядка")
+
 @Composable
-private fun NoteDialog(initial: String, onDismiss: () -> Unit, onSave: (String) -> Unit) {
-    var note by remember { mutableStateOf(initial) }
+private fun NoteDialog(
+    initialNote: String,
+    initialTags: List<String>,
+    onDismiss: () -> Unit,
+    onSave: (String, List<String>) -> Unit,
+) {
+    var note by remember { mutableStateOf(initialNote) }
+    val selected = remember { mutableStateListOf<String>().apply { addAll(initialTags) } }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Примітка") },
+        title = { Text("Примітка й теги") },
         text = {
-            OutlinedTextField(
-                value = note,
-                onValueChange = { note = it },
-                label = { Text("Клієнт, телефон, скарга…") },
-                modifier = Modifier.fillMaxWidth(),
-            )
+            Column {
+                OutlinedTextField(
+                    value = note,
+                    onValueChange = { note = it },
+                    label = { Text("Клієнт, телефон, скарга…") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(10.dp))
+                Text("Теги (що саме):", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(4.dp))
+                PRESET_TAGS.chunked(3).forEach { rowTags ->
+                    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        rowTags.forEach { t ->
+                            if (selected.contains(t)) {
+                                Button(onClick = { selected.remove(t) }, modifier = Modifier.weight(1f)) {
+                                    Text("#$t", maxLines = 1, style = MaterialTheme.typography.labelMedium)
+                                }
+                            } else {
+                                OutlinedButton(onClick = { selected.add(t) }, modifier = Modifier.weight(1f)) {
+                                    Text("#$t", maxLines = 1, style = MaterialTheme.typography.labelMedium)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         },
-        confirmButton = { TextButton(onClick = { onSave(note) }) { Text("Зберегти") } },
+        confirmButton = { TextButton(onClick = { onSave(note, selected.toList()) }) { Text("Зберегти") } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Скасувати") } },
     )
 }
