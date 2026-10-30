@@ -93,6 +93,7 @@ import java.util.Locale
 @Composable
 fun StationsScreen(vm: AppViewModel) {
     var showAdd by remember { mutableStateOf(false) }
+    var showCoffee by remember { mutableStateOf(false) }
     var editNoteFor by remember { mutableStateOf<StationEntry?>(null) }
     var confirmDelete by remember { mutableStateOf<StationEntry?>(null) }
     var confirmLogout by remember { mutableStateOf(false) }
@@ -159,7 +160,10 @@ fun StationsScreen(vm: AppViewModel) {
         },
     ) { pad ->
         Column(Modifier.fillMaxSize().padding(pad)) {
-            // Плитки (кава, зв'язок, деталі, прошивка) і «Майстерня» переїхали на нижню панель і в розділ «Ще».
+            // Плитка «КАВА» лишається нагорі; зв'язок, деталі, прошивка і «Майстерня» — на нижній панелі та в «Ще».
+            if (donateEnabled()) {
+                CoffeeTile(Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp)) { showCoffee = true }
+            }
             // Банер оновлення — завжди видимий (навіть коли ще немає станцій).
             vm.availableUpdate?.let { upd ->
                 if (!vm.updateDismissed) {
@@ -283,6 +287,9 @@ fun StationsScreen(vm: AppViewModel) {
         }
     }
 
+    if (showCoffee) {
+        CoffeeDonateDialog(onOpen = { showCoffee = false; openDonate(context) }, onDismiss = { showCoffee = false })
+    }
     if (showAdd) {
         AddStationDialog(
             onDismiss = { showAdd = false },
@@ -605,6 +612,38 @@ private fun BackupReminder(modifier: Modifier = Modifier, onSetup: () -> Unit, o
                 Spacer(Modifier.weight(1f))
                 TextButton(onClick = onHide) { Text("Пізніше") }
             }
+        }
+    }
+}
+
+/** Плитка «КАВА» на головному екрані: підтримати автора (вікно з чашкою). */
+@Composable
+private fun CoffeeTile(modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val src = remember { MutableInteractionSource() }
+    val pressed by src.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed) 0.97f else 1f, label = "coffeePress")
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .scale(scale)
+            .clickable(interactionSource = src, indication = null, onClick = onClick),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
+    ) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("☕", style = MaterialTheme.typography.titleLarge)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text("КАВА", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Text(
+                    "Програма безкоштовна — підтримай автора",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Text("›", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
