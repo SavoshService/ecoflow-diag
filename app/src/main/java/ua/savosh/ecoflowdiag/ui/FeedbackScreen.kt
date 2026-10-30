@@ -67,7 +67,7 @@ fun FeedbackScreen(vm: AppViewModel) {
                 }
             }
             SectionCard("Про програму") {
-                Text("Savosh Service — діагностика EcoFlow", fontWeight = FontWeight.SemiBold)
+                Text("Power Station Diag — діагностика портативних зарядних станцій", fontWeight = FontWeight.SemiBold)
                 Text("Версія $APP_VERSION", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(6.dp))
                 Text(

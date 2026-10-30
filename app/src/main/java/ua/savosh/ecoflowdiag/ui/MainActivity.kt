@@ -82,7 +82,7 @@ private fun App(vm: AppViewModel) {
         Screen.CAPTEST -> CapTestScreen(vm)
         Screen.CONTROL -> ControlScreen(vm)
         Screen.FEEDBACK -> FeedbackScreen(vm)
-        Screen.PARTS -> PartsScreen(vm)
+        Screen.PARTS, Screen.MORE -> MoreScreen(vm)   // колишній хаб «Деталі» — тепер розділ «Ще»
         Screen.STATIONINFO -> StationInfoScreen(vm)
         Screen.CRM -> CrmScreen(vm)
         Screen.KNOWLEDGE -> KnowledgeScreen(vm)

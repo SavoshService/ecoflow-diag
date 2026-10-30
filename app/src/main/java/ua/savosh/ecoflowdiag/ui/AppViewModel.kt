@@ -68,7 +68,10 @@ import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.random.Random
 
-enum class Screen { LOGIN, STATIONS, DIAG, RAW, LOG, FLASH, CAPTEST, CONTROL, FEEDBACK, PARTS, STATIONINFO, CRM, KNOWLEDGE, NOTES, BACKUP, REPORT }
+enum class Screen { LOGIN, STATIONS, DIAG, RAW, LOG, FLASH, CAPTEST, CONTROL, FEEDBACK, PARTS, STATIONINFO, CRM, KNOWLEDGE, NOTES, BACKUP, REPORT, MORE }
+
+/** Розділи нижньої панелі: Станції, Замовлення, Склад, Фінанси, Ще. */
+enum class MainTab { STATIONS, ORDERS, STOCK, FINANCE, MORE }
 
 class LogLine(val time: String, val text: String)
 
@@ -196,8 +199,44 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var editingOrderId by mutableStateOf<Long?>(null)
         private set
 
-    fun openCrm() {
+    /** Вкладка майстерні: 0 — замовлення, 1 — склад, 2 — фінанси, 3 — корзина. */
+    var crmTab by mutableStateOf(0)
+        private set
+
+    fun openCrm() = openCrmTab(0)
+
+    fun openCrmTab(tab: Int) {
+        crmTab = tab
         screen = Screen.CRM
+    }
+
+    /** Розділ «Ще»: записник, прошивка, копія, спільнота. */
+    fun openMore() { screen = Screen.MORE }
+
+    /** Розділ нижньої панелі, на якому зараз людина. */
+    val mainTab: MainTab
+        get() = when (screen) {
+            Screen.CRM -> when (crmTab) { 1 -> MainTab.STOCK; 2 -> MainTab.FINANCE; else -> MainTab.ORDERS }
+            Screen.MORE -> MainTab.MORE
+            else -> MainTab.STATIONS
+        }
+
+    fun openTab(tab: MainTab) {
+        when (tab) {
+            MainTab.STATIONS -> screen = Screen.STATIONS
+            MainTab.ORDERS -> openCrmTab(0)
+            MainTab.STOCK -> openCrmTab(1)
+            MainTab.FINANCE -> openCrmTab(2)
+            MainTab.MORE -> openMore()
+        }
+    }
+
+    /** Куди повертатись «назад» з другорядних екранів (талмуд, замітки, копія, прошивка, зв'язок). */
+    private var secondaryReturn = Screen.STATIONS
+
+    /** Запам'ятати розділ, з якого відкрили другорядний екран. */
+    private fun rememberReturn() {
+        if (screen == Screen.STATIONS || screen == Screen.CRM || screen == Screen.MORE) secondaryReturn = screen
     }
 
     /** Активні замовлення (не в корзині), новіші першими. */
@@ -393,7 +432,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     // ---------------- База знань майстра
     private val userArticles = mutableStateListOf<Article>()
 
-    fun openKnowledge() { screen = Screen.KNOWLEDGE }
+    fun openKnowledge() { rememberReturn(); screen = Screen.KNOWLEDGE }
 
     /** Усі статті: офіційні (з оновлення) + власні. */
     fun allArticles(): List<Article> = KnowledgeSeed.OFFICIAL + userArticles
@@ -594,7 +633,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun openBackup() { screen = Screen.BACKUP }
+    fun openBackup() { rememberReturn(); screen = Screen.BACKUP }
 
     fun dismissRestore() {
         offerRestore = false
@@ -638,7 +677,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     // ---------------- Записник (нотатки)
     val notes = mutableStateListOf<Note>()
 
-    fun openNotes() { screen = Screen.NOTES }
+    fun openNotes() { rememberReturn(); screen = Screen.NOTES }
 
     fun notesSorted(kind: String? = null): List<Note> {
         val base = notes.sortedByDescending { it.updatedAt }
@@ -1576,6 +1615,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     // =========================================================== керування станцією
 
     fun openFeedback() {
+        rememberReturn()
         screen = Screen.FEEDBACK
     }
 
@@ -1615,13 +1655,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun openFlash() {
+        rememberReturn()
         screen = Screen.FLASH
     }
 
-    /** Розділ «Ідентифікація та аналоги деталей» (поки СКОРО). */
-    fun openParts() {
-        screen = Screen.PARTS
-    }
+    /** Колишній хаб «Деталі» тепер — розділ «Ще». */
+    fun openParts() = openMore()
 
     /** SN станції для екрана «Повна інформація про станцію». */
     var infoSn by mutableStateOf<String?>(null)
@@ -1638,15 +1677,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** true — подію "назад" оброблено. */
     fun back(): Boolean = when (screen) {
-        Screen.FLASH -> {
-            screen = Screen.STATIONS
+        Screen.FLASH, Screen.KNOWLEDGE, Screen.NOTES, Screen.BACKUP, Screen.FEEDBACK -> {
+            screen = secondaryReturn
             true
         }
-        Screen.KNOWLEDGE, Screen.NOTES, Screen.BACKUP -> {
-            screen = Screen.PARTS
+        Screen.CRM -> {
+            if (crmTab == 3) crmTab = 0 else screen = Screen.STATIONS   // з корзини — до замовлень
             true
         }
-        Screen.FEEDBACK, Screen.PARTS, Screen.STATIONINFO, Screen.CRM -> {
+        Screen.PARTS, Screen.STATIONINFO, Screen.MORE -> {
             screen = Screen.STATIONS
             true
         }

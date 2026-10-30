@@ -114,7 +114,7 @@ fun LogScreen(vm: AppViewModel) {
                 },
                 title = { Text("Журнал підключення", fontWeight = FontWeight.Bold) },
                 actions = {
-                    IconButton(onClick = { shareText(context, vm.logText(), "EcoFlow Діагностика — журнал") }) {
+                    IconButton(onClick = { shareText(context, vm.logText(), "Power Station Diag — журнал") }) {
                         Icon(Icons.Filled.Share, contentDescription = "Поділитися журналом")
                     }
                 },

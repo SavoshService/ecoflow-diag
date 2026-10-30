@@ -35,8 +35,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -71,7 +69,7 @@ private fun statusColor(key: String): Color = when (key) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CrmScreen(vm: AppViewModel) {
-    var tab by rememberSaveable { mutableStateOf(0) }
+    val tab = vm.crmTab   // вкладку тепер обирає нижня панель (Замовлення / Склад / Фінанси) або «Ще» → Корзина
     var formOrderId by remember { mutableStateOf<Long?>(null) }
     var formOpen by remember { mutableStateOf(false) }
     var partFormId by remember { mutableStateOf<Long?>(null) }
@@ -95,18 +93,32 @@ fun CrmScreen(vm: AppViewModel) {
         topBar = {
             TopAppBar(
                 navigationIcon = {
-                    IconButton(onClick = { vm.back() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
+                    // «Назад» лише з корзини (повертає до замовлень); решта вкладок — головні розділи
+                    if (tab == 3) {
+                        IconButton(onClick = { vm.back() }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "До замовлень")
+                        }
                     }
                 },
-                title = { Text("🧰 Майстерня", fontWeight = FontWeight.Bold) },
+                title = {
+                    Text(
+                        when (tab) { 1 -> "Склад"; 2 -> "Фінанси"; 3 -> "Корзина"; else -> "Замовлення" },
+                        fontWeight = FontWeight.Bold,
+                    )
+                },
                 actions = {
+                    if (tab == 0) {
+                        IconButton(onClick = { vm.openCrmTab(3) }) {
+                            Text("🗑", style = MaterialTheme.typography.titleMedium)
+                        }
+                    }
                     IconButton(onClick = { settingsOpen = true }) {
                         Text("⚙", style = MaterialTheme.typography.titleLarge)
                     }
                 },
             )
         },
+        bottomBar = { MainNavBar(vm) },
         floatingActionButton = {
             when (tab) {
                 0 -> ExtendedFloatingActionButton(
@@ -123,12 +135,6 @@ fun CrmScreen(vm: AppViewModel) {
         },
     ) { pad ->
         Column(Modifier.fillMaxSize().padding(pad)) {
-            TabRow(selectedTabIndex = tab) {
-                Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Замовлення") })
-                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Склад") })
-                Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Бухгалтерія") })
-                Tab(selected = tab == 3, onClick = { tab = 3 }, text = { Text("Корзина") })
-            }
             when (tab) {
                 0 -> OrdersTab(vm, onEdit = { id -> formOrderId = id; formOpen = true })
                 1 -> PartsTab(vm, onEdit = { id -> partFormId = id; partFormOpen = true })

@@ -60,7 +60,7 @@ fun LoginScreen(vm: AppViewModel) {
                 fontWeight = FontWeight.Bold,
             )
             Text(
-                "EcoFlow Діагностика",
+                "Power Station Diag",
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
             )

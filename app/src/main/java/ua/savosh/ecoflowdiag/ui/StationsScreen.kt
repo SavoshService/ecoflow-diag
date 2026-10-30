@@ -96,7 +96,6 @@ fun StationsScreen(vm: AppViewModel) {
     var editNoteFor by remember { mutableStateOf<StationEntry?>(null) }
     var confirmDelete by remember { mutableStateOf<StationEntry?>(null) }
     var confirmLogout by remember { mutableStateOf(false) }
-    var showCoffee by remember { mutableStateOf(false) }
     var query by remember { mutableStateOf("") }
     var filter by remember { mutableStateOf(StFilter.ALL) }
     val context = LocalContext.current
@@ -150,6 +149,7 @@ fun StationsScreen(vm: AppViewModel) {
                 },
             )
         },
+        bottomBar = { MainNavBar(vm) },
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = { showAdd = true },
@@ -159,21 +159,7 @@ fun StationsScreen(vm: AppViewModel) {
         },
     ) { pad ->
         Column(Modifier.fillMaxSize().padding(pad)) {
-            // Видимі плитки швидких дій — усе на виду, без прихованого меню «⋮».
-            QuickActions(
-                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
-                onDonate = { showCoffee = true },
-                onFeedback = { vm.openFeedback() },
-                onParts = { vm.openParts() },
-                onFlash = { vm.openFlash() },
-            )
-            // Вхід у «Майстерню» (CRM замовлень) — на видноті, окремою широкою карткою.
-            WorkshopEntry(
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                activeCount = vm.activeOrders().size,
-                inWorkCount = vm.activeOrders().count { it.status != "green" },
-                onOpen = { vm.openCrm() },
-            )
+            // Плитки (кава, зв'язок, деталі, прошивка) і «Майстерня» переїхали на нижню панель і в розділ «Ще».
             // Банер оновлення — завжди видимий (навіть коли ще немає станцій).
             vm.availableUpdate?.let { upd ->
                 if (!vm.updateDismissed) {
@@ -210,7 +196,7 @@ fun StationsScreen(vm: AppViewModel) {
                         Text("Вхід в EcoFlow — для діагностики", style = MaterialTheme.typography.titleMedium)
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            "Майстерня, деталі й замітки працюють без входу. Щоб бачити й діагностувати свої станції — " +
+                            "Замовлення, склад і замітки працюють без входу. Щоб бачити й діагностувати свої станції — " +
                                 "увійдіть в акаунт EcoFlow.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -297,9 +283,6 @@ fun StationsScreen(vm: AppViewModel) {
         }
     }
 
-    if (showCoffee) {
-        CoffeeDonateDialog(onOpen = { showCoffee = false; openDonate(context) }, onDismiss = { showCoffee = false })
-    }
     if (showAdd) {
         AddStationDialog(
             onDismiss = { showAdd = false },
@@ -594,62 +577,6 @@ private fun DemoCard(onOpen: () -> Unit, onDismiss: (() -> Unit)? = null) {
     }
 }
 
-@Composable
-private fun QuickActions(
-    modifier: Modifier = Modifier,
-    onDonate: () -> Unit,
-    onFeedback: () -> Unit,
-    onParts: () -> Unit,
-    onFlash: () -> Unit,
-) {
-    Row(modifier = modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (donateEnabled()) {
-            QuickTile("☕", "КАВА", Modifier.weight(1f), onDonate)
-        }
-        QuickTile("✈", "Зв'язок", Modifier.weight(1f), onFeedback)
-        QuickTile(label = "Деталі", modifier = Modifier.weight(1f), onClick = onParts) { SpinningChip(sizeDp = 30) }
-        QuickTile(label = "Прошивка", modifier = Modifier.weight(1f), onClick = onFlash) { BinaryRain(cols = 5, rows = 3, fontSizeSp = 8) }
-    }
-}
-
-/** Широка картка-вхід у Майстерню: замовлення на ремонт і бухгалтерія. */
-@Composable
-private fun WorkshopEntry(
-    modifier: Modifier = Modifier,
-    activeCount: Int,
-    inWorkCount: Int,
-    onOpen: () -> Unit,
-) {
-    Card(
-        modifier = modifier.fillMaxWidth().clickable(onClick = onOpen),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-    ) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("🧰", style = MaterialTheme.typography.headlineSmall)
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    "Майстерня",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                )
-                Text(
-                    if (activeCount == 0) "Замовлення на ремонт і бухгалтерія"
-                    else "Активних: $activeCount · у роботі: $inWorkCount",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
-                )
-            }
-            Text("→", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onPrimaryContainer)
-        }
-    }
-}
-
 /** Нагадування увімкнути резервну копію, щоб не втратити дані при видаленні застосунку. */
 @Composable
 private fun BackupReminder(modifier: Modifier = Modifier, onSetup: () -> Unit, onHide: () -> Unit) {
@@ -679,41 +606,6 @@ private fun BackupReminder(modifier: Modifier = Modifier, onSetup: () -> Unit, o
                 TextButton(onClick = onHide) { Text("Пізніше") }
             }
         }
-    }
-}
-
-@Composable
-private fun QuickTile(label: String, modifier: Modifier = Modifier, onClick: () -> Unit, icon: @Composable () -> Unit) {
-    val src = remember { MutableInteractionSource() }
-    val pressed by src.collectIsPressedAsState()
-    val scale by animateFloatAsState(if (pressed) 0.94f else 1f, label = "tilePress")
-    Card(
-        modifier = modifier
-            .scale(scale)
-            .clickable(interactionSource = src, indication = null, onClick = onClick),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-    ) {
-        Column(
-            Modifier.fillMaxWidth().padding(vertical = 12.dp, horizontal = 4.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Box(Modifier.height(32.dp), contentAlignment = Alignment.Center) { icon() }
-            Spacer(Modifier.height(4.dp))
-            Text(
-                label,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-            )
-        }
-    }
-}
-
-@Composable
-private fun QuickTile(emoji: String, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
-    QuickTile(label = label, modifier = modifier, onClick = onClick) {
-        Text(emoji, style = MaterialTheme.typography.titleLarge)
     }
 }
 
