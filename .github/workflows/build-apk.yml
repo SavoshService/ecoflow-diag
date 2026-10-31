@@ -47,6 +47,13 @@ jobs:
             echo "Режим: ТЕСТ — збірка піде лише в реліз test (людям не йде)."
           fi
 
+      # Автотести висновків аналізатора (звичайна JVM). Якщо логіка «з'їхала» — збірка зупиняється
+      # ще до підпису, і ні тестова, ні реліз людям не вийде.
+      - name: Unit tests
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon testDebugUnitTest
+
       - name: Restore keystore from secret
         env:
           KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}

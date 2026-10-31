@@ -5,6 +5,8 @@ import android.content.SharedPreferences
 import ua.savosh.ecoflowdiag.core.Article
 import ua.savosh.ecoflowdiag.core.ChecklistItem
 import ua.savosh.ecoflowdiag.core.Json
+import ua.savosh.ecoflowdiag.core.LogEntry
+import ua.savosh.ecoflowdiag.core.StationLog
 import ua.savosh.ecoflowdiag.core.Note
 import ua.savosh.ecoflowdiag.core.Order
 import ua.savosh.ecoflowdiag.core.PartItem
@@ -114,7 +116,8 @@ class Prefs(context: Context) {
 
     fun loadReport(sn: String, technical: Boolean = false): String? = sp.getString(reportKey(sn, technical), null)
 
-    fun deleteReport(sn: String) = sp.edit().remove(reportKey(sn, false)).remove(reportKey(sn, true)).remove("capTest_$sn").apply()
+    fun deleteReport(sn: String) =
+        sp.edit().remove(reportKey(sn, false)).remove(reportKey(sn, true)).remove("capTest_$sn").remove("balance_$sn").apply()
 
     private fun reportKey(sn: String, technical: Boolean) = if (technical) "reportTech_$sn" else "report_$sn"
 
@@ -159,6 +162,26 @@ class Prefs(context: Context) {
     }
 
     /** Останній результат тесту реальної ємності станції (текст звіту). */
+    fun saveBalanceCheck(sn: String, text: String) = sp.edit().putString("balance_$sn", text).apply()
+
+    fun loadBalanceCheck(sn: String): String? = sp.getString("balance_$sn", null)
+
+    /** Журнал перевірок усіх станцій одним JSON { sn: [записи] } — входить у резервну копію. */
+    private fun stationLogs(): Map<String, Any?> = Json.parseObject(sp.getString("station_log", null) ?: "{}") ?: emptyMap()
+
+    fun loadStationLog(sn: String): List<LogEntry> = StationLog.fromJson(stationLogs()[sn])
+
+    fun saveStationLog(sn: String, list: List<LogEntry>) {
+        val all = LinkedHashMap(stationLogs())
+        all[sn] = StationLog.toJson(list)
+        sp.edit().putString("station_log", Json.stringify(all)).apply()
+    }
+
+    fun deleteStationLog(sn: String) {
+        val all = LinkedHashMap(stationLogs())
+        if (all.remove(sn) != null) sp.edit().putString("station_log", Json.stringify(all)).apply()
+    }
+
     fun saveCapTest(sn: String, text: String) = sp.edit().putString("capTest_$sn", text).apply()
 
     fun loadCapTest(sn: String): String? = sp.getString("capTest_$sn", null)
@@ -452,6 +475,7 @@ class Prefs(context: Context) {
             "kb_articles" to section("kb_articles"),
             "notes" to section("notes"),
             "saved_docs" to section("saved_docs"),
+            "station_log" to stationLogs(),
             "settings" to linkedMapOf<String, Any?>(
                 "email" to email,
                 "host" to host,
@@ -474,7 +498,7 @@ class Prefs(context: Context) {
         if (m["app"] != APP_TAG) return false
         val e = sp.edit()
         fun put(key: String) { m[key]?.let { e.putString(key, Json.stringify(it)) } }
-        put("stations"); put("crm_orders"); put("crm_parts"); put("kb_articles"); put("notes"); put("saved_docs")
+        put("stations"); put("crm_orders"); put("crm_parts"); put("kb_articles"); put("notes"); put("saved_docs"); put("station_log")
         (m["settings"] as? Map<*, *>)?.let { s ->
             (s["email"] as? String)?.let { e.putString("email", it) }
             (s["host"] as? String)?.let { e.putString("host", it) }

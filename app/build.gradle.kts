@@ -23,8 +23,8 @@ android {
         applicationId = "ua.savosh.ecoflowdiag"
         minSdk = 26
         targetSdk = 35
-        versionCode = 31
-        versionName = "2.20"
+        versionCode = 32
+        versionName = "2.21"
         buildConfigField("String", "TG_BOT_TOKEN", "\"${secret("TG_BOT_TOKEN")}\"")
         buildConfigField("String", "GOOGLE_CLIENT_SECRET", "\"${secret("GOOGLE_CLIENT_SECRET")}\"")
     }
@@ -117,4 +117,7 @@ dependencies {
 
     // Сканер штрих-коду / QR серійного номера
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
+
+    // Автотести висновків аналізатора (звичайна JVM, без пристрою) — запускаються в GitHub перед кожною збіркою
+    testImplementation("junit:junit:4.13.2")
 }

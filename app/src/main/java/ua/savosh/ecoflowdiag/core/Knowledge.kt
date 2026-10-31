@@ -25,10 +25,17 @@ class Release(val version: String, val changes: List<String>)
 object Changelog {
 
     /** Поточна версія (тримати в синхроні з versionName). */
-    const val CURRENT = "2.20"
+    const val CURRENT = "2.21"
 
     /** Новіші випуски — першими. */
     val ENTRIES: List<Release> = listOf(
+        Release(
+            "2.21",
+            listOf(
+                "⚖️ Перевірка балансу: застосунок сам ловить розкид груп наприкінці заряду й дає остаточний висновок (меню ⋮ у діагностиці)",
+                "📈 Історія перевірок станції: здоров'я, цикли, баланс і тест ємності між візитами — з трендом зносу",
+            ),
+        ),
         Release(
             "2.20",
             listOf(

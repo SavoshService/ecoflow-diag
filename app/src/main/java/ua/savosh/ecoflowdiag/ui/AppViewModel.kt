@@ -15,6 +15,9 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import ua.savosh.ecoflowdiag.core.Analyzer
+import ua.savosh.ecoflowdiag.core.BalanceCheck
+import ua.savosh.ecoflowdiag.core.LogEntry
+import ua.savosh.ecoflowdiag.core.StationLog
 import ua.savosh.ecoflowdiag.core.CapPhase
 import ua.savosh.ecoflowdiag.core.CapacityTest
 import ua.savosh.ecoflowdiag.core.Demo
@@ -68,7 +71,7 @@ import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.random.Random
 
-enum class Screen { LOGIN, STATIONS, DIAG, RAW, LOG, FLASH, CAPTEST, CONTROL, FEEDBACK, PARTS, STATIONINFO, CRM, KNOWLEDGE, NOTES, BACKUP, REPORT, MORE }
+enum class Screen { LOGIN, STATIONS, DIAG, RAW, LOG, FLASH, CAPTEST, BALANCE, CONTROL, FEEDBACK, PARTS, STATIONINFO, CRM, KNOWLEDGE, NOTES, BACKUP, REPORT, MORE }
 
 /** Розділи нижньої панелі: Станції, Замовлення, Склад, Фінанси, Ще. */
 enum class MainTab { STATIONS, ORDERS, STOCK, FINANCE, MORE }
@@ -137,6 +140,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     val capTestRunning: Boolean
         get() = capTest?.phase.let { it == CapPhase.CHARGE || it == CapPhase.DISCHARGE }
+
+    // ---------------- перевірка балансу наприкінці заряду
+    var balanceCheck by mutableStateOf<BalanceCheck?>(null)
+        private set
+    var balTick by mutableStateOf(0)
+        private set
+    val balanceRunning: Boolean
+        get() = balanceCheck?.phase == BalanceCheck.Phase.RUNNING
+
+    /** Журнал перевірок поточної станції (новіші першими): знімки діагностики, баланс, тест ємності. */
+    var stationLog by mutableStateOf<List<LogEntry>>(emptyList())
+        private set
+    private var lastLogSaveMs = 0L
 
     // ---------------- керування станцією
     var controlSent by mutableStateOf<String?>(null)
@@ -943,6 +959,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         scheduleBackup()
         prefs.deleteReport(sn)
         prefs.deleteHistory(sn)
+        prefs.deleteStationLog(sn)
     }
 
     fun stationNote(sn: String?): String? = stations.firstOrNull { it.sn == sn }?.note?.takeIf { it.isNotBlank() }
@@ -976,6 +993,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         diagConnected = true
         diagOnline = true
         diagStatus = "Демо-режим"
+        stationLog = emptyList()
         screen = Screen.DIAG
         var t = 0.0
         demoJob = viewModelScope.launch {
@@ -1029,6 +1047,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             tracker = CodeTracker(states, lastCheck)
             codeHistory = CodeHistory.eventsFromJson(prefs.loadCodeHistory(sn))
             lastCodeStateSaveMs = 0L
+            stationLog = prefs.loadStationLog(sn)
+            lastLogSaveMs = 0L
         }
         diagError = false
         loggedNotes = 0
@@ -1092,7 +1112,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     val now = System.currentTimeMillis()
                     val haveData = store.size() > 0
                     val interval = when {
-                        haveData && capTestRunning -> 10000L
+                        haveData && (capTestRunning || balanceRunning) -> 10000L
                         haveData && liveMode -> 8000L
                         haveData -> 30000L
                         store.online == false -> 15000L
@@ -1228,9 +1248,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             t.feed(now, r, snap)
             capTick++
         }
+        balanceCheck?.takeIf { it.sn == sn }?.let { b ->
+            b.feed(now, r, snap)
+            balTick++
+        }
         if (r.packs.isNotEmpty() && now - lastStationSaveMs > 10000) {
             lastStationSaveMs = now
             saveResult(sn, r)
+            logDiag(sn, r, throttle = true)
         }
     }
 
@@ -1275,7 +1300,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         prefs.saveStations(stations.toList())
         val date = dateText()
         prefs.saveReport(sn, Report.client(r, stations[i].note, date), technical = false)
-        prefs.saveReport(sn, Report.technical(r, stations[i].note, date, historyFor(sn)), technical = true)
+        prefs.saveReport(sn, Report.technical(r, stations[i].note, date, historyFor(sn), logFor(sn)), technical = true)
         reportNewCodes(r)
     }
 
@@ -1391,9 +1416,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         )
         prefs.saveStations(stations.toList())
         if (r != null) {
+            if (r.packs.isNotEmpty()) logDiag(sn, r, throttle = false)
             val date = dateText()
             prefs.saveReport(sn, Report.client(r, stations[i].note, date), technical = false)
-            prefs.saveReport(sn, Report.technical(r, stations[i].note, date), technical = true)
+            prefs.saveReport(sn, Report.technical(r, stations[i].note, date, log = logFor(sn)), technical = true)
         }
     }
 
@@ -1401,10 +1427,34 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun reportText(technical: Boolean): String? {
         val r = report ?: return null
         val note = stationNote(r.sn)
-        return if (technical) Report.technical(r, note, dateText(), historyFor(r.sn)) else Report.client(r, note, dateText())
+        return if (technical) Report.technical(r, note, dateText(), historyFor(r.sn), logFor(r.sn)) else Report.client(r, note, dateText())
     }
 
     private fun historyFor(sn: String): List<CodeEvent> = if (sn == diagSn) codeHistory else emptyList()
+
+    private fun logFor(sn: String): List<LogEntry> = if (sn == diagSn) stationLog else prefs.loadStationLog(sn)
+
+    /**
+     * Знімок діагностики в журнал станції (один на добу, свіжіший замінює). [throttle] — під час живої
+     * діагностики пишемо не частіше разу на 5 хв; при виході з діагностики й масовому оновленні — одразу.
+     */
+    private fun logDiag(sn: String, r: StationReport, throttle: Boolean) {
+        if (isDemo && sn == Demo.SN) return
+        val now = System.currentTimeMillis()
+        if (throttle && now - lastLogSaveMs < 5 * 60_000L) return
+        val main = r.packs.firstOrNull { it.isMain } ?: r.packs.firstOrNull() ?: return
+        val soh = r.packs.mapNotNull { it.sohEffective }.minOrNull()
+        if (soh == null && main.cycles == null) return
+        if (throttle) lastLogSaveMs = now
+        appendLog(sn, LogEntry(now, StationLog.DIAG, soh = soh, cycles = main.cycles, deltaMv = main.cellDeltaMv, soc = main.soc), backup = false)
+    }
+
+    private fun appendLog(sn: String, e: LogEntry, backup: Boolean = true) {
+        val upd = StationLog.add(logFor(sn), e)
+        prefs.saveStationLog(sn, upd)
+        if (sn == diagSn) stationLog = upd
+        if (backup) scheduleBackup()
+    }
 
     // ======================= Звіти: редактор + збережені =======================
     val savedReportDocs = mutableStateListOf<SavedReport>()
@@ -1545,8 +1595,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun onAppBackground() {
         if (prefs.gdConnected) viewModelScope.launch(Dispatchers.IO) { try { pushGoogle() } catch (e: Exception) { } }
         val sn = diagSn
-        if (capTestRunning) {
-            addLog("Застосунок згорнуто, але йде тест ємності — зв'язок не розриваємо")
+        if (capTestRunning || balanceRunning) {
+            addLog("Застосунок згорнуто, але йде ${if (capTestRunning) "тест ємності" else "перевірка балансу"} — зв'язок не розриваємо")
             return
         }
         if (diagJob != null && sn != null && screen != Screen.LOGIN && screen != Screen.STATIONS) {
@@ -1560,7 +1610,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun onAppForeground() {
         val sn = pausedSn ?: return
         pausedSn = null
-        if (screen == Screen.DIAG || screen == Screen.RAW || screen == Screen.LOG) {
+        // і з екранів тесту ємності / перевірки балансу: інакше після згортання дані туди більше не йшли б
+        if (screen == Screen.DIAG || screen == Screen.RAW || screen == Screen.LOG || screen == Screen.CAPTEST || screen == Screen.BALANCE) {
             addLog("Застосунок відкрито — відновлення зв'язку")
             startDiag(sn, keepData = true)
         }
@@ -1591,6 +1642,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         t.finishDischarge(System.currentTimeMillis())
         addLog("Тест ємності завершено: ≈${Analyzer.fmt0(t.discharge.wh)} Вт·год")
         prefs.saveCapTest(t.sn, t.summaryText(report?.model, dateText()))
+        t.measuredWh?.let { m ->
+            val pct = t.sohMeasured?.let { " — ${Analyzer.fmt0(it)}% від номіналу BMS" } ?: ""
+            appendLog(t.sn, LogEntry(System.currentTimeMillis(), StationLog.CAPACITY, soh = t.sohMeasured, text = "≈${Analyzer.fmt0(m)} Вт·год (${Analyzer.fmt1(t.discharge.ah)} А·год)$pct"))
+        }
     }
 
     fun capReset() {
@@ -1610,6 +1665,47 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val t = capTest ?: return
         block(t)
         capTick++
+    }
+
+    // =========================================================== перевірка балансу
+
+    fun openBalance() {
+        val sn = diagSn ?: return
+        if (balanceCheck?.sn != sn) {
+            balanceCheck = BalanceCheck(sn)
+            report?.let { balanceCheck!!.feed(System.currentTimeMillis(), it, rawParams) }
+        }
+        balTick++
+        screen = Screen.BALANCE
+    }
+
+    fun balanceStart() = balAction { it.start(System.currentTimeMillis()); addLog("Перевірка балансу почата") }
+
+    fun balanceFinish() = balAction { b ->
+        b.finish(System.currentTimeMillis())
+        prefs.saveBalanceCheck(b.sn, b.summaryText(report?.model, dateText()))
+        addLog("Перевірка балансу завершена: ${b.shortResult()}")
+        val w = b.worst()
+        appendLog(b.sn, LogEntry(System.currentTimeMillis(), StationLog.BALANCE, deltaMv = w?.deltaMv, soc = w?.soc, text = b.shortResult()))
+    }
+
+    fun balanceReset() {
+        val sn = diagSn ?: return
+        balanceCheck = BalanceCheck(sn)
+        report?.let { balanceCheck!!.feed(System.currentTimeMillis(), it, rawParams) }
+        balTick++
+    }
+
+    fun balanceResultText(): String? = balanceCheck?.let { b ->
+        if (b.phase == BalanceCheck.Phase.IDLE) null else b.summaryText(report?.model, dateText())
+    }
+
+    fun lastBalanceCheck(sn: String): String? = prefs.loadBalanceCheck(sn)
+
+    private inline fun balAction(block: (BalanceCheck) -> Unit) {
+        val b = balanceCheck ?: return
+        block(b)
+        balTick++
     }
 
     // =========================================================== керування станцією
@@ -1689,7 +1785,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             screen = Screen.STATIONS
             true
         }
-        Screen.RAW, Screen.LOG, Screen.CAPTEST, Screen.CONTROL -> {
+        Screen.RAW, Screen.LOG, Screen.CAPTEST, Screen.BALANCE, Screen.CONTROL -> {
             screen = if (diagSn != null) Screen.DIAG else Screen.STATIONS
             true
         }
@@ -1706,8 +1802,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             // поки йде тест ємності, з'єднання не рвемо — повертаємось на екран тесту
             screen = Screen.CAPTEST
             true
+        } else if (balanceRunning) {
+            // так само під час перевірки балансу
+            screen = Screen.BALANCE
+            true
         } else {
-            diagSn?.let { sn -> report?.let { if (it.packs.isNotEmpty()) saveResult(sn, it) } }
+            diagSn?.let { sn ->
+                report?.let {
+                    if (it.packs.isNotEmpty()) {
+                        saveResult(sn, it)
+                        logDiag(sn, it, throttle = false)
+                    }
+                }
+            }
             stopDiag()
             pausedSn = null
             screen = Screen.STATIONS

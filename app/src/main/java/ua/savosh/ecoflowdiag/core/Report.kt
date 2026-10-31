@@ -75,11 +75,20 @@ object Report {
         return sb.toString()
     }
 
-    /** [history] — історія змін кодів станції (новіші першими); у звіт іде не більше [HISTORY_IN_REPORT] подій. */
-    fun technical(r: StationReport, note: String?, dateText: String, history: List<CodeEvent> = emptyList()): String =
-        build(r, note, dateText, technical = true, history = history)
+    /**
+     * [history] — історія змін кодів станції (новіші першими); у звіт іде не більше [HISTORY_IN_REPORT] подій.
+     * [log] — журнал перевірок станції між візитами (знімки діагностики, баланс, тест ємності).
+     */
+    fun technical(
+        r: StationReport,
+        note: String?,
+        dateText: String,
+        history: List<CodeEvent> = emptyList(),
+        log: List<LogEntry> = emptyList(),
+    ): String = build(r, note, dateText, technical = true, history = history, log = log)
 
     const val HISTORY_IN_REPORT = 30
+    const val LOG_IN_REPORT = 15
 
     private fun build(
         r: StationReport,
@@ -87,6 +96,7 @@ object Report {
         dateText: String,
         technical: Boolean,
         history: List<CodeEvent> = emptyList(),
+        log: List<LogEntry> = emptyList(),
     ): String {
         val sb = StringBuilder()
         sb.appendLine("РОЗШИРЕНИЙ ЗВІТ — діагностика станції")
@@ -169,6 +179,13 @@ object Report {
             val shown = history.take(HISTORY_IN_REPORT)
             sb.appendLine("Історія кодів і захистів (${if (shown.size < history.size) "останні ${shown.size} з ${history.size}" else "${history.size}"}):")
             for (e in shown) sb.appendLine("  ${mark(e.level)} ${CodeHistory.line(e)}")
+        }
+        if (technical && log.isNotEmpty()) {
+            sb.appendLine()
+            sb.appendLine("Історія перевірок станції:")
+            val chem = r.packs.firstOrNull { it.isMain }?.chemistry ?: Chemistry.UNKNOWN
+            StationLog.trend(log, chem)?.let { sb.appendLine("  $it") }
+            for (e in log.take(LOG_IN_REPORT)) sb.appendLine("  ${StationLog.line(e)}")
         }
         if (r.usage.isNotEmpty()) {
             sb.appendLine()

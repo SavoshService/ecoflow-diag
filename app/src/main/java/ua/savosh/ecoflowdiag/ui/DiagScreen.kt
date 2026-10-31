@@ -67,6 +67,8 @@ import ua.savosh.ecoflowdiag.core.CodeHistory
 import ua.savosh.ecoflowdiag.core.EcoflowCodes
 import ua.savosh.ecoflowdiag.core.Indicator
 import ua.savosh.ecoflowdiag.core.Level
+import ua.savosh.ecoflowdiag.core.LogEntry
+import ua.savosh.ecoflowdiag.core.StationLog
 import ua.savosh.ecoflowdiag.core.PackReport
 import ua.savosh.ecoflowdiag.core.StationReport
 
@@ -115,6 +117,7 @@ fun DiagScreen(vm: AppViewModel) {
                         IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "Ще") }
                         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                             DropdownMenuItem(text = { Text("🔋 Тест реальної ємності") }, onClick = { menu = false; vm.openCapTest() }, enabled = r != null)
+                            DropdownMenuItem(text = { Text("⚖️ Перевірка балансу") }, onClick = { menu = false; vm.openBalance() }, enabled = r != null)
                             DropdownMenuItem(text = { Text("Сирі дані (усі параметри)") }, onClick = { menu = false; vm.openRaw() })
                             DropdownMenuItem(text = { Text("Журнал підключення") }, onClick = { menu = false; vm.openLog() })
                             if (vm.codeHistory.isNotEmpty()) {
@@ -230,12 +233,24 @@ private fun OverviewTab(vm: AppViewModel, r: StationReport, onEditCode: (Indicat
         }
     }
     val single = r.packs.size == 1
+    val lastBalance = vm.stationLog.firstOrNull { it.kind == StationLog.BALANCE }
     for (p in r.packs) {
-        PackCard(p, single, onEditCode)
+        PackCard(p, single, onEditCode, onBalance = { vm.openBalance() }, lastBalance = lastBalance)
     }
     if (r.packs.isEmpty()) {
         SectionCard("Батарея") {
             HintText("Дані станції надходять, але параметрів батареї поки немає. Зачекайте 10–30 с або натисніть «Оновити».")
+        }
+    }
+    if (vm.stationLog.isNotEmpty()) {
+        SectionCard("Історія перевірок", collapsible = true, initiallyExpanded = false) {
+            val chem = r.packs.firstOrNull { it.isMain }?.chemistry ?: Chemistry.UNKNOWN
+            StationLog.trend(vm.stationLog, chem)?.let {
+                Text(it, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(6.dp))
+            }
+            for (e in vm.stationLog.take(LOG_PREVIEW)) HintText(StationLog.line(e))
+            if (vm.stationLog.size > LOG_PREVIEW) HintText("…та ще ${vm.stationLog.size - LOG_PREVIEW}. Більше — у технічному звіті.")
         }
     }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
@@ -251,7 +266,13 @@ private fun OverviewTab(vm: AppViewModel, r: StationReport, onEditCode: (Indicat
 
 /** Картка батареї: коротко завжди + «Розширена інформація» розкриває деталі. */
 @Composable
-private fun PackCard(p: PackReport, single: Boolean, onEditCode: (Indicator) -> Unit) {
+private fun PackCard(
+    p: PackReport,
+    single: Boolean,
+    onEditCode: (Indicator) -> Unit,
+    onBalance: () -> Unit,
+    lastBalance: LogEntry?,
+) {
     val title = if (single) "Батарея" else p.title
     var expanded by rememberSaveable(key = "exp_${p.key}") { mutableStateOf(true) }
     SectionCard(title) {
@@ -296,13 +317,13 @@ private fun PackCard(p: PackReport, single: Boolean, onEditCode: (Indicator) -> 
         TextButton(onClick = { expanded = !expanded }) {
             Text(if (expanded) "▲ Згорнути" else "▼ Розширена інформація")
         }
-        if (expanded) PackDetails(p)
+        if (expanded) PackDetails(p, onBalance, lastBalance)
     }
 }
 
 /** Повні деталі батареї (ховаються під «Розширена інформація»). */
 @Composable
-private fun PackDetails(p: PackReport) {
+private fun PackDetails(p: PackReport, onBalance: () -> Unit, lastBalance: LogEntry?) {
     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
     Spacer(Modifier.height(10.dp))
     p.sn?.let { KeyValue("SN пакета", it) }
@@ -335,6 +356,14 @@ private fun PackDetails(p: PackReport) {
         if (p.cellVols.size >= 2) {
             Spacer(Modifier.height(8.dp))
             CellBars(p.cellVols, p.cellOkMv, p.cellWarnMv)
+        }
+        if (p.isMain) {
+            // Остаточно баланс видно лише наприкінці заряду — показуємо останню таку перевірку й кнопку запуску.
+            lastBalance?.let {
+                Spacer(Modifier.height(6.dp))
+                HintText(StationLog.line(it))
+            }
+            TextButton(onClick = onBalance) { Text("⚖️ Перевірити баланс наприкінці заряду") }
         }
     }
     if (p.findings.isNotEmpty()) {
@@ -498,6 +527,7 @@ private fun ExplainDialog(doc: EcoflowCodes.Doc, onDismiss: () -> Unit) {
 // ============================================================ спільне
 
 private const val HISTORY_PREVIEW = 12
+private const val LOG_PREVIEW = 12
 
 @Composable
 private fun ConnectionDot(connected: Boolean, online: Boolean?) {

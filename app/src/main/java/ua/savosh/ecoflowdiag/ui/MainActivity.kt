@@ -80,6 +80,7 @@ private fun App(vm: AppViewModel) {
         Screen.LOG -> LogScreen(vm)
         Screen.FLASH -> FlashScreen(vm)
         Screen.CAPTEST -> CapTestScreen(vm)
+        Screen.BALANCE -> BalanceScreen(vm)
         Screen.CONTROL -> ControlScreen(vm)
         Screen.FEEDBACK -> FeedbackScreen(vm)
         Screen.PARTS, Screen.MORE -> MoreScreen(vm)   // колишній хаб «Деталі» — тепер розділ «Ще»
