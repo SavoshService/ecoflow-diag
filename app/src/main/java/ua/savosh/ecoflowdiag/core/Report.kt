@@ -13,13 +13,8 @@ object Report {
 
     fun client(r: StationReport, note: String?, dateText: String): String = buildShort(r, note, dateText)
 
-    /** Оцінка батареї ЛИШЕ за здоров'ям (SOH). Помилки/коди станції на це не впливають. */
-    private fun batteryBySoh(soh: Double?): String = when {
-        soh == null -> "Недостатньо даних"
-        soh >= 80 -> "Добрий"
-        soh >= 65 -> "Потребує уваги"
-        else -> "Незадовільний"
-    }
+    /** Оцінка батареї ЛИШЕ за здоров'ям (SOH), єдина шкала [Health]. Помилки/коди станції на це не впливають. */
+    private fun batteryBySoh(soh: Double?): String = Health.of(soh)?.report ?: "Недостатньо даних"
 
     /** Загальний стан для короткого звіту — теж за здоров'ям батареї, без помилок. */
     private fun overallBySoh(soh: Double?): String = when {
@@ -59,9 +54,11 @@ object Report {
         }
         val cycles = r.packs.mapNotNull { it.cycles }.maxOrNull()
         sb.appendLine("Кількість циклів: ${cycles?.toString() ?: "Немає даних"}")
-        sb.appendLine("Напрацювання: ${if (r.usage.isNotEmpty()) r.usage.joinToString("; ") { it.second } else "Немає даних"}")
-        val out = r.energy.filter { it.first.contains("вихід", ignoreCase = true) }
-        sb.appendLine("Видано енергії: ${if (out.isNotEmpty()) out.joinToString("; ") { it.second } else "Немає даних"}")
+        // З підписами: без них «120 год; 30 год» незрозуміло, що саме працювало.
+        sb.appendLine("Напрацювання: ${if (r.usage.isNotEmpty()) r.usage.joinToString("; ") { "${it.first} — ${it.second}" } else "Немає даних"}")
+        // «вих» ловить і «AC-вихід», і «DC/USB-виходи» (раніше USB/DC сюди не потрапляли).
+        val out = r.energy.filter { it.first.contains("вих", ignoreCase = true) }
+        sb.appendLine("Видано енергії: ${if (out.isNotEmpty()) out.joinToString("; ") { "${it.first} — ${it.second}" } else "Немає даних"}")
         sb.appendLine()
 
         sb.appendLine("Загальний стан: ${overallBySoh(soh)}")
@@ -98,7 +95,7 @@ object Report {
         if (!note.isNullOrBlank()) sb.appendLine("Примітка: $note")
         if (technical) sb.appendLine("Покоління: ${r.generation.title} · параметрів: ${r.paramCount}")
         sb.appendLine()
-        sb.appendLine("ПІДСУМОК: ${r.level.title.uppercase()} — ${r.summary}")
+        sb.appendLine("ПІДСУМОК: ${r.level.statusTitle.uppercase()} — ${r.summary}")
         if (r.totalDesignWh != null && r.totalFullWh != null) {
             sb.append("Загальна ємність: ≈${fmt0(r.totalFullWh)} з ${fmt0(r.totalDesignWh)} Вт·год (${fmt0(r.totalFullWh * 100 / r.totalDesignWh)}%)")
             r.totalPassportWh?.let { sb.append("; за паспортом ${fmt0(it)} Вт·год") }
@@ -108,7 +105,10 @@ object Report {
         for (p in r.packs) {
             sb.appendLine()
             sb.appendLine("■ ${p.title}${p.sn?.let { " (SN $it)" } ?: ""}")
-            sb.appendLine("  Стан: ${p.level.title} — ${p.verdict}")
+            sb.appendLine("  Оцінка батареї (за SOH): ${p.health?.report ?: "недостатньо даних"}")
+            sb.appendLine(
+                if (p.issues.isEmpty()) "  Зауважень немає" else "  Зауваження: " + p.issues.joinToString("; ") { it.short ?: it.text },
+            )
             p.sohEffective?.let { sb.appendLine("  Здоров'я (SOH): ${fmt0(it)}%") }
             if (technical && (p.sohBms != null || p.sohCapacity != null)) {
                 sb.appendLine(

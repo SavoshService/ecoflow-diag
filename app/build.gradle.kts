@@ -23,8 +23,8 @@ android {
         applicationId = "ua.savosh.ecoflowdiag"
         minSdk = 26
         targetSdk = 35
-        versionCode = 30
-        versionName = "2.19"
+        versionCode = 31
+        versionName = "2.20"
         buildConfigField("String", "TG_BOT_TOKEN", "\"${secret("TG_BOT_TOKEN")}\"")
         buildConfigField("String", "GOOGLE_CLIENT_SECRET", "\"${secret("GOOGLE_CLIENT_SECRET")}\"")
     }

@@ -66,6 +66,8 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import ua.savosh.ecoflowdiag.core.Level
+import ua.savosh.ecoflowdiag.core.Health
+import kotlin.math.roundToInt
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -224,7 +226,7 @@ fun StationsScreen(vm: AppViewModel) {
                     }
                 }
             } else {
-                val attentionCount = vm.stations.count { it.online == false || (it.lastSoh != null && it.lastSoh < 80) }
+                val attentionCount = vm.stations.count { it.online == false || sohNeedsAttention(it.lastSoh) }
                 if (attentionCount > 0) {
                     AttentionBanner(
                         count = attentionCount,
@@ -338,15 +340,12 @@ private fun StationCard(
     onDelete: () -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
-    // Акцент за станом (здоров'я + онлайн), без впливу кодів помилок
+    // Акцент за станом (здоров'я за єдиною шкалою + онлайн), без впливу кодів помилок
     val accent = levelColor(
         when {
             st.lastCheckMs == null -> Level.UNKNOWN
             st.online == false -> Level.BAD
-            st.lastSoh == null -> Level.UNKNOWN
-            st.lastSoh < 65 -> Level.BAD
-            st.lastSoh < 80 -> Level.WARN
-            else -> Level.GOOD
+            else -> Health.of(st.lastSoh)?.level ?: Level.UNKNOWN
         },
     )
     Card(
@@ -387,8 +386,19 @@ private fun StationCard(
                 if (st.lastCheckMs != null) {
                     Spacer(Modifier.height(6.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        val lv = levelFromName(st.lastLevel)
-                        LevelChip(lv, st.lastSoh?.let { "${lv.title} · SOH ${it.toInt()}%" } ?: lv.title)
+                        // Значок — оцінка батареї лише за SOH; «⚠» — є зауваження (коди, дисбаланс тощо).
+                        val overall = levelFromName(st.lastLevel)
+                        val grade = Health.of(st.lastSoh)
+                        val soh = st.lastSoh
+                        if (grade != null && soh != null) {
+                            LevelChip(grade.level, "${grade.chip} · SOH ${soh.roundToInt()}%")
+                            if (overall.rank >= Level.WARN.rank) {
+                                Spacer(Modifier.width(6.dp))
+                                Text("⚠", color = levelColor(overall), fontWeight = FontWeight.Bold)
+                            }
+                        } else {
+                            LevelChip(overall, overall.statusTitle)
+                        }
                         Spacer(Modifier.width(8.dp))
                         Text(
                             SimpleDateFormat("dd.MM.yy HH:mm", Locale.US).format(Date(st.lastCheckMs)),
@@ -498,6 +508,9 @@ private fun AttentionBanner(count: Int, modifier: Modifier = Modifier, onClick: 
     }
 }
 
+/** Здоров'я батареї потребує уваги — за тією ж шкалою (і округленням), що й значок на картці. */
+private fun sohNeedsAttention(soh: Double?): Boolean = (Health.of(soh)?.level?.rank ?: -1) >= Level.WARN.rank
+
 private enum class StFilter(val title: String) {
     ALL("Усі"), ONLINE("Онлайн"), OFFLINE("Офлайн"), ATTENTION("Увага")
 }
@@ -508,7 +521,7 @@ private fun stationMatches(st: StationEntry, query: String, filter: StFilter): B
         st.sn.contains(q, ignoreCase = true) ||
         st.note.contains(q, ignoreCase = true) ||
         (st.model?.contains(q, ignoreCase = true) == true)
-    val attention = st.online == false || (st.lastSoh != null && st.lastSoh < 80)
+    val attention = st.online == false || sohNeedsAttention(st.lastSoh)
     val mf = when (filter) {
         StFilter.ALL -> true
         StFilter.ONLINE -> st.online == true

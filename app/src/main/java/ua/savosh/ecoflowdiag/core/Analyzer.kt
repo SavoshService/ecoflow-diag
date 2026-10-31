@@ -13,6 +13,14 @@ enum class Level(val rank: Int, val title: String) {
     CRITICAL(4, "Критично");
 
     fun worse(other: Level): Level = if (other.rank > rank) other else this
+
+    /** Підпис загального стану станції: «Добре» тут означає лише відсутність зауважень, а не оцінку батареї. */
+    val statusTitle: String
+        get() = when (this) {
+            UNKNOWN -> "Немає даних"
+            GOOD, OK -> "Без зауважень"
+            else -> title
+        }
 }
 
 enum class Chemistry(val title: String, val short: String, val nominalCellV: Double, val ratedCycles: Int) {
@@ -21,7 +29,35 @@ enum class Chemistry(val title: String, val short: String, val nominalCellV: Dou
     UNKNOWN("не визначено", "?", 0.0, 0),
 }
 
-/** Висновок. [short] — коротке формулювання для заголовка батареї, якщо саме воно визначає статус. */
+/**
+ * Єдина шкала оцінки батареї — ЛИШЕ за здоров'ям (SOH). Та сама в застосунку, на картці станції,
+ * у звітах і в тесті ємності. Коди помилок, дисбаланс чи примітки на неї не впливають.
+ * Межі рахуються від округленого SOH — щоб «95%» на екрані ніколи не отримало нижчу оцінку.
+ */
+object Health {
+    /** [chip] — для значка, [verdict] — висновок у застосунку, [report] — оцінка у звіті клієнту. */
+    class Grade(val level: Level, val chip: String, val verdict: String, val report: String)
+
+    private val EXCELLENT = Grade(Level.GOOD, "Відмінно", "Відмінний стан батареї", "Відмінний")
+    private val GOOD = Grade(Level.GOOD, "Добре", "Добрий стан батареї", "Добрий")
+    private val WORN = Grade(Level.WARN, "Увага", "Помітний знос батареї", "Потребує уваги")
+    private val POOR = Grade(Level.BAD, "Погано", "Сильний знос батареї", "Незадовільний")
+
+    fun of(soh: Double?): Grade? {
+        val s = soh?.roundToInt() ?: return null
+        return when {
+            s >= 95 -> EXCELLENT
+            s >= 80 -> GOOD
+            s >= 65 -> WORN
+            else -> POOR
+        }
+    }
+}
+
+/**
+ * Висновок. [short] — коротке формулювання для заголовка батареї, якщо саме воно визначає статус.
+ * Рівень [Level.UNKNOWN] — довідкова примітка: показується сірим і на жодну оцінку не впливає.
+ */
 class Finding(val level: Level, val text: String, val short: String? = null, val codeInfo: Boolean = false)
 
 /**
@@ -87,13 +123,24 @@ class PackReport(
     val waterIn: Boolean,
     val firmware: String?,
     val hwVersion: String?,
+    /** Загальний статус батареї: найгірше зі здоров'я та зауважень (для підсумку станції й техзвіту). */
     val level: Level,
+    /** Оцінка батареї лише за SOH (шкала [Health]); null — SOH невідомий. */
+    val health: Health.Grade?,
     /** Висновок лише за ємністю (SOH). */
     val capacityVerdict: String,
     /** Загальний висновок, узгоджений зі статусом [level]. */
     val verdict: String,
     val findings: List<Finding>,
-)
+    /** Зауваження, не пов'язані зі зносом (дисбаланс, температура, коди…), від «Увага» і вище. */
+    val issues: List<Finding>,
+    /** Оцінка розкиду груп (UNKNOWN — немає даних) і пороги відхилення групи для стовпчиків, мВ. */
+    val balanceLevel: Level,
+    val cellOkMv: Int,
+    val cellWarnMv: Int,
+) {
+    val healthLevel: Level get() = health?.level ?: Level.UNKNOWN
+}
 
 class StationReport(
     val sn: String,
@@ -230,6 +277,13 @@ object Analyzer {
 
     private const val GEN3_SUMMARY = "gen3summary"
 
+    /**
+     * Плато LFP: між цими напругами групи напруга майже не залежить від заряду, тож розбалансовані групи
+     * виглядають однаково. Баланс чесно видно лише біля країв — наприкінці заряду чи розряду.
+     */
+    private const val LFP_LOW_KNEE_MV = 3150L
+    private const val LFP_TOP_KNEE_MV = 3400L
+
     private fun packsWord(n: Int): String = when {
         n == 1 -> "1 батарея"
         n in 2..4 -> "$n батареї"
@@ -307,8 +361,11 @@ object Analyzer {
         val design = s.lng("designCap")?.takeIf { it > 0 }
         val full = s.lng("fullCap")?.takeIf { it > 0 }
         val remain = s.lng("remainCap")?.takeIf { it >= 0 }
-        val sohCap = if (design != null && full != null && full <= design * 1.15) full * 100.0 / design else null
-        val sohEffective = listOfNotNull(sohBms, sohCap).minOrNull()
+        // Вивчена ємність понад номінал більш ніж на 15% — так не буває (збій або інші одиниці): не використовуємо.
+        val capImplausible = design != null && full != null && full > design * 1.15
+        val sohCap = if (design != null && full != null && !capImplausible) full * 100.0 / design else null
+        // Нова батарея може мати ємність трохи понад номінал — здоров'я понад 100% не показуємо.
+        val sohEffective = listOfNotNull(sohBms, sohCap?.coerceAtMost(100.0)).minOrNull()
 
         val cycles = s.lng("cycles")
         val vol = s.lng("vol")?.takeIf { it > 0 }
@@ -347,21 +404,28 @@ object Analyzer {
                 null
             }
         val fullCellList = series != null && cellVols.size == series
+        val seriesSure = declaredSeries != null || fullCellList
         val weakest = if (fullCellList) cellVols.indexOf(cellVols.minOrNull()!!) + 1 else null
 
         // --- паспорт моделі (для основної батареї — за моделлю станції)
         val modelPassport = if (isMain) Models.passportForModel(modelName) else null
 
-        // --- хімія
+        // --- хімія. Для основної батареї відомої моделі — з паспорта: напруга може обманути
+        // (перезаряджена група LFP легко перевищить 3.75 В і «стане» NCM). Інакше — за напругами й групами.
+        // Додаткові батареї визначаємо лише за параметрами: до станції бувають сумісні батареї іншої хімії.
         var chem = Chemistry.UNKNOWN
         var chemSure = false
         when {
+            modelPassport?.chemistry != null -> { chem = modelPassport.chemistry; chemSure = true }
             maxCell != null && maxCell >= 3750 -> { chem = Chemistry.NCM; chemSure = true }
             maxCell != null && soc != null && soc >= 60 && maxCell in 2800L..3600L -> { chem = Chemistry.LFP; chemSure = true }
             maxCell != null && soc != null && soc >= 30 && maxCell in 2800L..3450L -> { chem = Chemistry.LFP; chemSure = true }
             series == 14 && (vol ?: 0) > 40000 -> { chem = Chemistry.NCM; chemSure = true }
             series == 16 && (vol ?: 0) > 45000 -> { chem = Chemistry.LFP; chemSure = true }
-            modelPassport?.chemistry != null -> { chem = modelPassport.chemistry; chemSure = true }
+            // DELTA Pro / DELTA Pro EB: 15 груп LFP по ~80 А·год (інакше на низькому заряді вони «ставали» NCM)
+            series == 15 && design != null && design in 76_000L..84_000L -> { chem = Chemistry.LFP; chemSure = true }
+            // NCM навіть на 10% заряду тримає ~3.5 В на групу; нижче 3.35 В при такому заряді — це LFP
+            maxCell != null && soc != null && soc >= 10 && maxCell in 2800L..3350L -> { chem = Chemistry.LFP; chemSure = true }
             generation == Generation.GEN1 -> chem = Chemistry.NCM
             generation == Generation.GEN2 || generation == Generation.GEN3 -> chem = Chemistry.LFP
         }
@@ -383,76 +447,129 @@ object Analyzer {
 
         val findings = ArrayList<Finding>()
 
-        // --- ємність
-        var capLevel = Level.UNKNOWN
-        val capVerdict: String
-        if (sohEffective != null) {
-            val (lv, txt) = when {
-                sohEffective >= 90 -> Level.GOOD to "Батарея в доброму стані"
-                sohEffective >= 80 -> Level.OK to "Нормальний знос"
-                sohEffective >= 70 -> Level.WARN to "Помітна деградація"
-                sohEffective >= 60 -> Level.BAD to "Сильна деградація"
-                else -> Level.CRITICAL to "Ресурс елементів вичерпано"
-            }
-            capLevel = lv
-            capVerdict = txt
-            val capTxt = if (design != null && full != null) {
+        // --- здоров'я: єдина оцінка батареї, ЛИШЕ за SOH (шкала Health)
+        val health = Health.of(sohEffective)
+        val healthFinding = if (health != null && sohEffective != null) {
+            val capTxt = if (design != null && full != null && !capImplausible) {
                 " (вивчена ємність ${fmt1(full / 1000.0)} з ${fmt1(design / 1000.0)} А·год" +
                     (if (fullWh != null && designWh != null) ", ≈${fmt0(fullWh)} з ${fmt0(designWh)} Вт·год" else "") + ")"
             } else {
                 ""
             }
-            findings.add(Finding(lv, "Здоров'я ${fmt0(sohEffective)}%$capTxt — ${txt.lowercase()}.", txt.lowercase()))
-        } else if (cycles != null) {
-            capLevel = Level.OK
-            capVerdict = "SOH не передається — оцінка за циклами"
+            Finding(health.level, "Здоров'я ${fmt0(sohEffective)}%$capTxt — ${health.verdict.lowercase()}.", health.verdict.lowercase())
         } else {
-            capVerdict = "Немає даних про ємність"
+            null
+        }
+        healthFinding?.let { findings.add(it) }
+        val capVerdict = when {
+            health != null -> health.verdict
+            cycles != null -> "SOH не передається — знос не оцінити (є лише лічильник циклів)"
+            else -> "Немає даних про ємність"
         }
 
-        if (passport?.wh != null && designWh != null && abs(designWh - passport.wh) / passport.wh > 0.03) {
-            val diff = (designWh - passport.wh) * 100.0 / passport.wh
-            findings.add(
-                Finding(
-                    Level.OK,
-                    "Номінал за даними BMS ≈${fmt0(designWh)} Вт·год (${fmt1(design!! / 1000.0)} А·год × ${fmt1(packVnom!!)} В), " +
-                        "у паспорті ${passport.name} — ${passport.wh} Вт·год. Різниця ${fmt0(abs(diff))}% нормальна: паспорт вказує " +
-                        "консервативну енергію, а BMS — номінал елементів. Знос оцінюйте за відсотком SOH.",
-                ),
-            )
+        if (design != null && full != null) {
+            if (capImplausible) {
+                findings.add(
+                    Finding(
+                        Level.UNKNOWN,
+                        "BMS передає вивчену ємність ${fmt1(full / 1000.0)} А·год при номіналі ${fmt1(design / 1000.0)} А·год — " +
+                            "на ${fmt0((full - design) * 100.0 / design)}% більше, так не буває. Ці дані в оцінці не використано.",
+                    ),
+                )
+            } else if (full > design) {
+                findings.add(
+                    Finding(
+                        Level.UNKNOWN,
+                        "Вивчена ємність ${fmt1(full / 1000.0)} А·год трохи більша за номінал BMS ${fmt1(design / 1000.0)} А·год — " +
+                            "у нових батарей так буває (елементи мають запас). Здоров'я понад 100% не показується.",
+                    ),
+                )
+            }
+        }
+
+        // --- номінал BMS і паспорт: різниця зі знаком і поясненням; на оцінку здоров'я не впливає
+        if (passport?.wh != null && designWh != null && design != null && packVnom != null) {
+            val pWh = passport.wh
+            val diff = (designWh - pWh) * 100.0 / pWh
+            val basis = "${fmt1(design / 1000.0)} А·год × ${fmt1(packVnom)} В"
+            if (diff > 3) {
+                val holds = if (fullWh != null && !capImplausible && fullWh > pWh) {
+                    " Зараз батарея вміщує ≈${fmt0(fullWh)} Вт·год — це ≈${fmt0(fullWh * 100.0 / pWh)}% від паспорта."
+                } else {
+                    ""
+                }
+                findings.add(
+                    Finding(
+                        Level.UNKNOWN,
+                        "Номінал за BMS ≈${fmt0(designWh)} Вт·год ($basis) — на ${fmt0(diff)}% БІЛЬШЕ за паспортні $pWh Вт·год ${passport.name}. " +
+                            "Це не помилка й не знос: у паспорті вказано гарантовану енергію, а BMS рахує повну ємність елементів.$holds " +
+                            "Здоров'я рахується від номіналу BMS, тому ця різниця на оцінку не впливає.",
+                    ),
+                )
+            } else if (diff < -3) {
+                // Помітно менший номінал підозрілий, лише коли ми певні хімії, кількості груп і моделі.
+                val suspicious = diff < -10 && chemSure && seriesSure && !passport.inferred
+                val why = when {
+                    suspicious -> "Так буває, якщо батарею чи BMS міняли на неоригінальну або BMS перепрограмували — варто перевірити."
+                    diff < -10 -> "Можлива причина — хімію чи кількість груп визначено приблизно. На оцінку здоров'я не впливає."
+                    else -> "Різниця невелика й на оцінку здоров'я не впливає."
+                }
+                findings.add(
+                    Finding(
+                        if (suspicious) Level.WARN else Level.UNKNOWN,
+                        "Номінал за BMS ≈${fmt0(designWh)} Вт·год ($basis) — на ${fmt0(-diff)}% МЕНШЕ за паспортні $pWh Вт·год ${passport.name}. $why",
+                        if (suspicious) "номінал BMS менший за паспорт" else null,
+                    ),
+                )
+            }
         }
 
         if (sohBms != null && sohCap != null && abs(sohBms - sohCap) >= 10) {
             findings.add(
                 Finding(
-                    Level.WARN,
-                    "SOH за BMS (${fmt0(sohBms)}%) і вивчена ємність (${fmt0(sohCap)}%) сильно розходяться. " +
-                        "BMS могла не калібруватись — зробіть повний цикл 100% → 0% → 100% і перевірте ще раз.",
-                    "SOH за BMS і за ємністю розходяться",
+                    Level.UNKNOWN,
+                    "SOH за BMS (${fmt0(sohBms)}%) і за вивченою ємністю (${fmt0(sohCap)}%) сильно розходяться — BMS могла давно " +
+                        "не калібруватись. Для оцінки взято менше значення. Уточнити: повний цикл 100% → 0% → 100% або «Тест ємності».",
                 ),
             )
         }
 
-        // --- баланс груп
+        // --- баланс груп: висновок лише такий, який дозволяє напруга
+        var balanceLevel = Level.UNKNOWN
+        val lfpPlateau = chem == Chemistry.LFP && minCell != null && maxCell != null &&
+            minCell > LFP_LOW_KNEE_MV && maxCell < LFP_TOP_KNEE_MV
+        // На плато LFP навіть кілька мВ — це вже велика різниця заряду груп, тому пороги нижчі.
+        val okMv = if (lfpPlateau) 20 else 30
+        val warnMv = if (lfpPlateau) 50 else 70
         if (delta != null) {
             val socNote = soc?.let { " при заряді ${fmt0(it)}%" } ?: ""
+            val avgNote = avgCell?.let { " (середня ${fmt3(it / 1000.0)} В)" } ?: ""
             val (lv, txt, short) = when {
-                delta <= 30 -> Triple(Level.GOOD, "групи збалансовані", null)
-                delta <= 70 -> Triple(Level.WARN, "помірний дисбаланс", "помірний дисбаланс груп")
+                delta <= okMv && lfpPlateau -> Triple(Level.GOOD, "явного розбалансу не видно", null)
+                delta <= okMv -> Triple(Level.GOOD, "групи збалансовані", null)
+                delta <= warnMv && lfpPlateau -> Triple(
+                    Level.WARN,
+                    "помітний розбаланс — на плато LFP навіть така різниця означає, що групи помітно розійшлися за зарядом",
+                    "розбаланс груп",
+                )
+                delta <= warnMv -> Triple(Level.WARN, "помірний дисбаланс", "помірний дисбаланс груп")
                 delta <= 150 -> Triple(Level.BAD, "сильний дисбаланс — ймовірно, є слабка група", "сильний дисбаланс груп")
                 else -> Triple(Level.CRITICAL, "дуже сильний дисбаланс — слабка/пошкоджена група", "дуже сильний дисбаланс груп")
             }
-            val weakTxt = if (weakest != null && delta > 30) " Найнижча напруга — група №$weakest." else ""
-            findings.add(Finding(lv, "Розкид напруг груп $delta мВ$socNote: $txt.$weakTxt", short))
-            if (chem == Chemistry.LFP && soc != null && soc in 15.0..90.0 && delta <= 30) {
-                findings.add(
-                    Finding(
-                        Level.OK,
-                        "У LFP в середині заряду напруги майже рівні навіть при дисбалансі. " +
-                            "Надійніше перевіряти розкид біля 100% (кінець заряду) або біля 0%.",
-                    ),
-                )
+            val weakTxt = if (weakest != null && lv.rank >= Level.WARN.rank) " Найнижча напруга — група №$weakest." else ""
+            val plateauTxt = when {
+                !lfpPlateau -> ""
+                lv.rank >= Level.WARN.rank -> " Наприкінці заряду (групи вище 3.45 В) різниця буде ще більшою — там і перевірте."
+                soc != null && soc >= 90 ->
+                    " Після заряду напруга LFP швидко сідає на плато (≈3.3 В), тому навіть на ${fmt0(soc)}% різниця груп майже не видна. " +
+                        "Точно баланс видно наприкінці заряду (групи вище 3.45 В) або біля 0%."
+                else ->
+                    " Це плато LFP: тут навіть розбалансовані групи мають майже однакову напругу. " +
+                        "Точно баланс видно наприкінці заряду (групи вище 3.45 В) або біля 0%."
             }
+            val chemTxt = if (chem == Chemistry.UNKNOWN) " Хімію не визначено — оцінка приблизна." else ""
+            findings.add(Finding(lv, "Розкид напруг груп $delta мВ$socNote$avgNote: $txt.$weakTxt$plateauTxt$chemTxt", short))
+            balanceLevel = lv
         }
 
         // --- температури
@@ -475,12 +592,32 @@ object Analyzer {
         if (maxMos != null && maxMos >= 75) {
             findings.add(Finding(Level.WARN, "Температура MOSFET BMS $maxMos °C — висока.", "висока температура MOSFET"))
         }
+        // Холод: нижче −30 °C вважаємо збоєм датчика, а не реальною температурою.
+        val coldCell = listOfNotNull(minCellTemp, cellTemps.minOrNull()).minOrNull()?.takeIf { it >= -30 }
+        if (coldCell != null && coldCell < 0) {
+            if ((amp ?: 0L) > 300) {
+                findings.add(
+                    Finding(
+                        Level.WARN,
+                        "Заряд при температурі елементів $coldCell °C — на морозі заряд шкодить літієвим елементам; BMS має обмежувати струм.",
+                        "заряд на морозі",
+                    ),
+                )
+            } else {
+                findings.add(
+                    Finding(
+                        Level.UNKNOWN,
+                        "Температура елементів $coldCell °C — на холоді ємність тимчасово менша, а заряд BMS може не дозволяти до прогріву.",
+                    ),
+                )
+            }
+        }
 
         // --- коди, відмови, захисти
         val codes = buildPackCodes(s, ctx, findings)
 
         // --- силові ключі
-        val mos = buildMos(s, soc, ctx)
+        val mos = buildMos(s, soc, amp, ctx)
         if (mos != null && mos.level.rank >= Level.WARN.rank) {
             findings.add(Finding(mos.level, "Силові ключі BMS: ${mos.value}. ${mos.note ?: ""}".trim(), "BMS вимкнула розряд"))
         }
@@ -490,16 +627,30 @@ object Analyzer {
             findings.add(Finding(Level.CRITICAL, "Спрацював датчик потрапляння вологи в батарею!", "волога в батареї"))
         }
 
-        // --- ресурс за циклами
+        // --- ресурс за циклами: лише довідка; знос оцінюється за SOH. Тривога — тільки коли SOH невідомий.
         if (cycles != null && ratedCycles != null) {
             val used = resourceUsed ?: 0.0
-            val lv = if (used >= 100) Level.WARN else Level.GOOD
+            val (lv, tail, short) = when {
+                used < 80 -> Triple(Level.GOOD, "", null)
+                used < 100 -> Triple(Level.UNKNOWN, " Паспортний ресурс наближається.", null)
+                sohEffective != null && sohEffective >= 80 -> Triple(
+                    Level.UNKNOWN,
+                    " Паспортний ресурс пройдено, але ємність ще тримається — орієнтуйтесь на здоров'я (SOH).",
+                    null,
+                )
+                sohEffective != null -> Triple(Level.UNKNOWN, " Паспортний ресурс пройдено — це видно і за здоров'ям (SOH).", null)
+                else -> Triple(
+                    Level.WARN,
+                    " Паспортний ресурс пройдено, а SOH BMS не передає — зробіть «Тест ємності».",
+                    "ресурс за циклами пройдено",
+                )
+            }
             findings.add(
                 Finding(
                     lv,
                     "$cycles циклів із ~$ratedCycles до 80% ємності ($ratedSource) — використано ≈${fmt0(used)}% ресурсу. " +
-                        "Це оцінка лише за лічильником циклів BMS" + (if (!chemSure) "; хімію визначено приблизно" else "") + ".",
-                    if (lv == Level.WARN) "ресурс за циклами вичерпано" else null,
+                        "Це оцінка лише за лічильником циклів BMS" + (if (!chemSure) "; хімію визначено приблизно" else "") + "." + tail,
+                    short,
                 ),
             )
         }
@@ -518,14 +669,16 @@ object Analyzer {
         val notProvided = buildNotProvided(s)
         val hw = hwString(s.raw("hwEdition")) ?: hwString(s.raw("hwVersion")) ?: hwString(s.raw("hwVer"))
 
-        // --- загальний статус і узгоджений висновок
+        // --- загальний статус і узгоджений висновок. Довідкові примітки (UNKNOWN) статус не знижують.
+        // Оцінка батареї (health) — окремо, лише за SOH; решта — «зауваження».
+        val capLevel = health?.level ?: Level.UNKNOWN
+        val issues = findings.filter { it !== healthFinding && it.level.rank >= Level.WARN.rank }
         var level = capLevel
         for (f in findings) level = level.worse(f.level)
         for (c in codes) level = level.worse(c.level)
         mos?.let { level = level.worse(it.level) }
 
-        val driver = findings.filter { it.short != null && it.level == level && it.level.rank > capLevel.rank }
-            .firstOrNull()
+        val driver = issues.firstOrNull { it.short != null && it.level == level && it.level.rank > capLevel.rank }
         val baseVerdict = when {
             driver == null -> capVerdict
             capLevel == Level.UNKNOWN -> driver.short!!.replaceFirstChar { it.uppercase() }
@@ -559,7 +712,8 @@ object Analyzer {
             equivalentCycles = eqCycles, resourceUsedPct = resourceUsed,
             mos = mos, codes = codes, notProvided = notProvided,
             waterIn = water, firmware = fw, hwVersion = hw,
-            level = level, capacityVerdict = capVerdict, verdict = verdict, findings = findings,
+            level = level, health = health, capacityVerdict = capVerdict, verdict = verdict, findings = findings,
+            issues = issues, balanceLevel = balanceLevel, cellOkMv = okMv, cellWarnMv = warnMv,
         )
     }
 
@@ -611,6 +765,7 @@ object Analyzer {
 
         // Активні захисти й тривоги (3-тє покоління)
         var protect = false
+        val alarms = ArrayList<String>()
         for ((name, title, lv) in listOf(
             Triple("bmsProtectState1", "Захист BMS 1", Level.BAD),
             Triple("bmsProtectState2", "Захист BMS 2", Level.BAD),
@@ -619,7 +774,7 @@ object Analyzer {
         )) {
             val v = s.lng(name) ?: continue
             if (v == 0L) continue
-            if (lv == Level.BAD) protect = true
+            if (lv == Level.BAD) protect = true else alarms.add(name)
             out.add(Indicator(title, "$v (біти ${bitsText(v)})", lv, "активний стан BMS ($name)"))
         }
 
@@ -691,15 +846,36 @@ object Analyzer {
                 ),
             )
         }
+        // Тривога без відмови чи захисту — теж зауваження, щоб воно було видно не лише на вкладці «Коди».
+        if (!hasFault && !bqAlarm && !protect && alarms.isNotEmpty()) {
+            findings.add(
+                Finding(
+                    Level.WARN,
+                    "BMS повідомляє активну тривогу (${alarms.joinToString(", ")}) — див. вкладку «Коди». Значення бітів EcoFlow не публікує.",
+                    "активна тривога BMS",
+                ),
+            )
+        }
         return out
     }
 
-    private fun buildMos(s: Src, soc: Double?, ctx: Ctx): Indicator? {
+    private fun buildMos(s: Src, soc: Double?, ampMa: Long?, ctx: Ctx): Indicator? {
         val v = s.lng("mosState") ?: return null
         val chgOn = v and 1L != 0L
         val dsgOn = v and 2L != 0L
         var lv = Level.GOOD
         val notes = ArrayList<String>()
+        // Біти mosState підтверджені не для всіх моделей. Якщо струм батареї суперечить біту —
+        // трактування для цієї BMS не підходить, і робити з нього висновок не можна.
+        val amp = ampMa ?: 0L
+        if ((!chgOn && amp > 300) || (!dsgOn && amp < -300)) {
+            return Indicator(
+                "Силові ключі BMS",
+                "mosState = $v",
+                Level.UNKNOWN,
+                "біти суперечать струму батареї (${fmt1(amp / 1000.0)} А) — для цієї BMS вони означають інше, не зважайте",
+            )
+        }
         if (!chgOn) {
             val max = ctx.maxChargeSoc
             notes.add(

@@ -218,7 +218,7 @@ private fun OverviewTab(vm: AppViewModel, r: StationReport, onEditCode: (Indicat
     }
     SectionCard("Стан станції") {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            LevelChip(r.level)
+            LevelChip(r.level, r.level.statusTitle)
             Spacer(Modifier.width(10.dp))
             ConnectionDot(vm.diagConnected, vm.diagOnline)
         }
@@ -256,7 +256,7 @@ private fun PackCard(p: PackReport, single: Boolean, onEditCode: (Indicator) -> 
     var expanded by rememberSaveable(key = "exp_${p.key}") { mutableStateOf(true) }
     SectionCard(title) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            SohGauge(p.sohEffective, p.level)
+            SohGauge(p.sohEffective, p.healthLevel)
             Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
                 p.soc?.let {
@@ -270,7 +270,19 @@ private fun PackCard(p: PackReport, single: Boolean, onEditCode: (Indicator) -> 
             }
         }
         Spacer(Modifier.height(8.dp))
-        Text(p.verdict, style = MaterialTheme.typography.titleSmall, color = levelColor(p.level), fontWeight = FontWeight.SemiBold)
+        // Оцінка батареї — лише за SOH; зауваження (дисбаланс, коди, температура) — окремими рядками.
+        Text(p.capacityVerdict, style = MaterialTheme.typography.titleSmall, color = levelColor(p.healthLevel), fontWeight = FontWeight.SemiBold)
+        for (f in p.issues.take(3)) {
+            Text(
+                "⚠ ${(f.short ?: f.text).replaceFirstChar { it.uppercase() }}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = levelColor(f.level),
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+        p.findings.firstOrNull { it.codeInfo && it.short != null && it.level.rank < Level.WARN.rank }?.let {
+            HintText("ℹ ${it.short}")
+        }
 
         // короткий поточний стан
         Spacer(Modifier.height(10.dp))
@@ -318,11 +330,11 @@ private fun PackDetails(p: PackReport) {
         Spacer(Modifier.height(6.dp))
         KeyValue("Мін / макс", "${fmt3(p.minCellMv / 1000.0)} / ${fmt3(p.maxCellMv / 1000.0)} В")
         val delta = p.cellDeltaMv ?: (p.maxCellMv - p.minCellMv)
-        KeyValue("Розкид", "$delta мВ", valueColor = levelColor(deltaLevel(delta)))
+        KeyValue("Розкид", "$delta мВ", valueColor = levelColor(p.balanceLevel))
         p.weakestCell?.let { KeyValue("Найнижча група", "№$it") }
         if (p.cellVols.size >= 2) {
             Spacer(Modifier.height(8.dp))
-            CellBars(p.cellVols)
+            CellBars(p.cellVols, p.cellOkMv, p.cellWarnMv)
         }
     }
     if (p.findings.isNotEmpty()) {
@@ -557,11 +569,4 @@ private fun chemistryText(p: PackReport): String {
     if (p.chemistry == Chemistry.UNKNOWN) return "Хімія: не визначено" + (p.seriesCells?.let { " · ${it}S" } ?: "")
     val sure = if (p.chemistryConfident) "" else " (ймовірно)"
     return "${p.chemistry.title}$sure" + (p.seriesCells?.let { " · ${it}S" } ?: "")
-}
-
-private fun deltaLevel(delta: Long): Level = when {
-    delta <= 30 -> Level.GOOD
-    delta <= 70 -> Level.WARN
-    delta <= 150 -> Level.BAD
-    else -> Level.CRITICAL
 }

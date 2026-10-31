@@ -40,6 +40,9 @@ class CapacityTest(val sn: String) {
     /** Номінал за даними BMS і за паспортом — для порівняння. */
     var designWh: Double? = null
         private set
+    /** Номінал BMS у А·год (сума батарей) — база для здоров'я за тестом, без припущень про напругу. */
+    var designAh: Double? = null
+        private set
     var passportWh: Double? = null
         private set
     var chargeLimit: Double? = null
@@ -122,6 +125,8 @@ class CapacityTest(val sn: String) {
 
         val dw = r.packs.mapNotNull { it.designWh }
         if (dw.size == r.packs.size && dw.isNotEmpty()) designWh = dw.sum()
+        val da = r.packs.mapNotNull { it.designCapMah }
+        if (da.size == r.packs.size && da.isNotEmpty()) designAh = da.sum() / 1000.0
         val pw = r.packs.mapNotNull { it.passport?.wh?.toDouble() }
         if (pw.size == r.packs.size && pw.isNotEmpty()) passportWh = pw.sum()
         chargeLimit = num(params, "ems.maxChargeSoc", "bms_emsStatus.maxChargeSoc") ?: chargeLimit
@@ -188,8 +193,14 @@ class CapacityTest(val sn: String) {
             return discharge.wh * 100.0 / span
         }
 
+    /**
+     * Здоров'я за тестом: виміряні А·год розряду до номіналу BMS у А·год — як і SOH самої BMS.
+     * Порівняння у Вт·год завищувало б результат: реальна середня напруга розряду вища за номінальну.
+     */
     val sohMeasured: Double? get() {
         val m = measuredWh ?: return null
+        val ah = designAh
+        if (ah != null && ah > 0 && discharge.ah > 0) return discharge.ah * 100.0 / ah
         val d = designWh ?: return null
         return m * 100.0 / d
     }
@@ -223,10 +234,15 @@ class CapacityTest(val sn: String) {
         if (phase == CapPhase.DONE || phase == CapPhase.DISCHARGE) sb.appendLine("Етап 2 — розряд: ${stageLine(discharge)}")
         measuredWh?.let { m ->
             sb.appendLine()
-            sb.append("ВИМІРЯНА ЄМНІСТЬ: ≈${Analyzer.fmt0(m)} Вт·год")
-            designWh?.let { sb.append(" з ${Analyzer.fmt0(it)} номіналу BMS") }
-            sohMeasured?.let { sb.append(" (${Analyzer.fmt0(it)}%)") }
+            sb.append("ВИМІРЯНА ЄМНІСТЬ: ≈${Analyzer.fmt0(m)} Вт·год (${Analyzer.fmt1(discharge.ah)} А·год)")
+            sohMeasured?.let { s ->
+                sb.append(" — ${Analyzer.fmt0(s)}% від номіналу BMS")
+                val ah = designAh
+                val wh = designWh
+                if (ah != null) sb.append(" ${Analyzer.fmt1(ah)} А·год") else if (wh != null) sb.append(" ${Analyzer.fmt0(wh)} Вт·год")
+            }
             sb.appendLine()
+            Health.of(sohMeasured)?.let { sb.appendLine("Оцінка батареї: ${it.report}") }
             passportWh?.let { sb.appendLine("За паспортом: ${Analyzer.fmt0(it)} Вт·год") }
             extrapolatedWh?.let { sb.appendLine("Оцінка на повні 100%: ≈${Analyzer.fmt0(it)} Вт·год") }
             roundTrip?.let { sb.appendLine("Ефективність циклу (віддано / прийнято): ${Analyzer.fmt0(it)}%") }

@@ -151,7 +151,8 @@ fun SohGauge(percent: Double?, level: Level, sizeDp: Int = 96) {
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                percent?.let { "${it.toInt()}%" } ?: "—",
+                // Округлення як у висновках (99.6 → 100), а не обрізання — щоб числа на екрані збігались.
+                percent?.let { "${kotlin.math.round(it).toLong()}%" } ?: "—",
                 fontFamily = Mono,
                 fontWeight = FontWeight.Bold,
                 fontSize = (sizeDp / 4.2).sp,
@@ -164,18 +165,26 @@ fun SohGauge(percent: Double?, level: Level, sizeDp: Int = 96) {
 
 /**
  * Відхилення напруги кожної групи від середнього (мВ): стовпчик угору — вища за середню, униз — нижча.
- * Колір — за абсолютним порогом відхилення, а не за рангом: ≤ 20 мВ норма, ≤ 50 мВ увага, > 50 мВ погано.
+ * Колір узгоджений із висновком про баланс (ті самі пороги розкиду [okMv]/[warnMv], на плато LFP — нижчі):
+ * розкид у нормі — усі стовпчики зелені; інакше групи, що відхилились, фарбуються кольором висновку.
  */
 @Composable
-fun CellBars(cells: List<Long>) {
+fun CellBars(cells: List<Long>, okMv: Int = 30, warnMv: Int = 70) {
     if (cells.size < 2) return
     val avg = cells.average()
     val devs = cells.map { it - avg }
     val maxAbs = devs.maxOf { kotlin.math.abs(it) }
     val range = maxOf(25.0, maxAbs * 1.15)
+    val spread = cells.max() - cells.min()
     val good = levelColor(Level.GOOD)
-    val warn = levelColor(Level.WARN)
-    val bad = levelColor(Level.CRITICAL)
+    val outlier = levelColor(
+        when {
+            spread <= okMv -> Level.GOOD
+            spread <= warnMv -> Level.WARN
+            spread <= 150 -> Level.BAD
+            else -> Level.CRITICAL
+        },
+    )
     val axis = MaterialTheme.colorScheme.outline
     Column {
         Canvas(
@@ -191,11 +200,7 @@ fun CellBars(cells: List<Long>) {
             drawLine(axis, Offset(0f, mid), Offset(size.width, mid), 1.dp.toPx())
             for ((i, d) in devs.withIndex()) {
                 val a = kotlin.math.abs(d)
-                val c = when {
-                    a <= 20 -> good
-                    a <= 50 -> warn
-                    else -> bad
-                }
+                val c = if (spread <= okMv || a <= okMv / 2.0) good else outlier
                 val h = maxOf(2.dp.toPx(), (a / range * half).toFloat())
                 val x = i * (w + gap)
                 val top = if (d >= 0) mid - h else mid
@@ -231,7 +236,7 @@ fun CellBars(cells: List<Long>) {
         Spacer(Modifier.height(4.dp))
         Text(
             "Відхилення від середнього ${String.format(java.util.Locale.US, "%.3f", avg / 1000.0)} В, мВ · " +
-                "шкала ±${range.toLong()} мВ · зелений ≤ 20, жовтий ≤ 50, червоний > 50 мВ",
+                "шкала ±${range.toLong()} мВ · розкид ≤ $okMv мВ — норма, ≤ $warnMv мВ — увага, більше — погано",
             fontSize = 10.sp,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

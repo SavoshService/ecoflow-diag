@@ -44,6 +44,7 @@ import ua.savosh.ecoflowdiag.core.Analyzer.fmt1
 import ua.savosh.ecoflowdiag.core.CapPhase
 import ua.savosh.ecoflowdiag.core.CapStage
 import ua.savosh.ecoflowdiag.core.CapacityTest
+import ua.savosh.ecoflowdiag.core.Health
 import ua.savosh.ecoflowdiag.core.Level
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -242,21 +243,17 @@ private fun StageCard(vm: AppViewModel, t: CapacityTest, now: Long, onCancel: ()
                 Text("Розряд не набрав енергії — результату немає. Перевірте, що станція справді розряджалась.", style = MaterialTheme.typography.bodyMedium)
             } else {
                 val soh = t.sohMeasured
-                val lv = when {
-                    soh == null -> Level.UNKNOWN
-                    soh >= 90 -> Level.GOOD
-                    soh >= 80 -> Level.OK
-                    soh >= 70 -> Level.WARN
-                    soh >= 60 -> Level.BAD
-                    else -> Level.CRITICAL
-                }
+                // Та сама шкала, що й в оцінці батареї та звітах (Health).
+                val grade = Health.of(soh)
+                val lv = grade?.level ?: Level.UNKNOWN
+                val base = t.designAh?.let { "${fmt1(it)} А·год" } ?: t.designWh?.let { "${fmt0(it)} Вт·год" }
                 BigResult(
                     "Реальна ємність",
                     "≈${fmt0(m)} Вт·год",
-                    t.designWh?.let { "з ${fmt0(it)} Вт·год номіналу BMS" + (soh?.let { s -> " — ${fmt0(s)}%" } ?: "") },
+                    "${fmt1(t.discharge.ah)} А·год" + (if (soh != null && base != null) " — ${fmt0(soh)}% від номіналу BMS ($base)" else ""),
                 )
                 Spacer(Modifier.height(6.dp))
-                LevelChip(lv, soh?.let { "${lv.title} · ${fmt0(it)}%" } ?: lv.title)
+                LevelChip(lv, if (grade != null && soh != null) "${grade.chip} · ${fmt0(soh)}%" else lv.statusTitle)
                 Spacer(Modifier.height(10.dp))
                 KeyValue("Заряд (етап 1)", "≈${fmt0(t.charge.wh)} Вт·год")
                 KeyValue("Розряд (етап 2)", "≈${fmt0(t.discharge.wh)} Вт·год")
