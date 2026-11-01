@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import ua.savosh.ecoflowdiag.core.Article
 import ua.savosh.ecoflowdiag.core.ChecklistItem
 import ua.savosh.ecoflowdiag.core.Json
+import ua.savosh.ecoflowdiag.core.CellSnapshot
 import ua.savosh.ecoflowdiag.core.LogEntry
 import ua.savosh.ecoflowdiag.core.StationLog
 import ua.savosh.ecoflowdiag.core.Note
@@ -165,6 +166,13 @@ class Prefs(context: Context) {
     fun saveBalanceCheck(sn: String, text: String) = sp.edit().putString("balance_$sn", text).apply()
 
     fun loadBalanceCheck(sn: String): String? = sp.getString("balance_$sn", null)
+
+    /** Останні отримані напруги груп станції (по батареях), щоб не зникали, коли станція не надіслала список. */
+    fun loadLastCells(sn: String): Map<String, CellSnapshot> =
+        CellSnapshot.fromJson(Json.parseObject(sp.getString("cells_$sn", null) ?: "{}") ?: emptyMap())
+
+    fun saveLastCells(sn: String, m: Map<String, CellSnapshot>) =
+        sp.edit().putString("cells_$sn", Json.stringify(CellSnapshot.toJson(m))).apply()
 
     /** Журнал перевірок усіх станцій одним JSON { sn: [записи] } — входить у резервну копію. */
     private fun stationLogs(): Map<String, Any?> = Json.parseObject(sp.getString("station_log", null) ?: "{}") ?: emptyMap()

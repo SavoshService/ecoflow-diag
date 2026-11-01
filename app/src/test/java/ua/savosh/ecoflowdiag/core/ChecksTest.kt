@@ -140,4 +140,14 @@ class ChecksTest {
         assertEquals("12 мВ наприкінці заряду — групи збалансовані", back[0].text)
         assertTrue(StationLog.line(back[0]).contains("перевірка балансу: 12 мВ"))
     }
+
+    @Test
+    fun lastCells_jsonRoundTrip() {
+        val m = mapOf("bms_bmsStatus" to CellSnapshot(t0, List(16) { 3330L + it }))
+        val back = CellSnapshot.fromJson(Json.parseObject(Json.stringify(CellSnapshot.toJson(m)))!!)
+        assertEquals(16, back["bms_bmsStatus"]!!.cells.size)
+        assertEquals(3345L, back["bms_bmsStatus"]!!.cells.last())
+        assertEquals(t0, back["bms_bmsStatus"]!!.timeMs)
+        assertTrue(CellSnapshot.fromJson(mapOf("x" to mapOf("t" to 1L, "v" to listOf(3300L)))).isEmpty())
+    }
 }

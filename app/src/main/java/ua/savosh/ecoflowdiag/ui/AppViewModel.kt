@@ -16,6 +16,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import ua.savosh.ecoflowdiag.core.Analyzer
 import ua.savosh.ecoflowdiag.core.BalanceCheck
+import ua.savosh.ecoflowdiag.core.CellSnapshot
 import ua.savosh.ecoflowdiag.core.LogEntry
 import ua.savosh.ecoflowdiag.core.StationLog
 import ua.savosh.ecoflowdiag.core.CapPhase
@@ -153,6 +154,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     var stationLog by mutableStateOf<List<LogEntry>>(emptyList())
         private set
     private var lastLogSaveMs = 0L
+
+    /** Останні отримані напруги груп по батареях поточної станції (ключ — PackReport.key). */
+    var lastCells by mutableStateOf<Map<String, CellSnapshot>>(emptyMap())
+        private set
+    private var lastCellsSaveMs = 0L
 
     // ---------------- керування станцією
     var controlSent by mutableStateOf<String?>(null)
@@ -1049,6 +1055,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             lastCodeStateSaveMs = 0L
             stationLog = prefs.loadStationLog(sn)
             lastLogSaveMs = 0L
+            lastCells = if (isDemo) emptyMap() else prefs.loadLastCells(sn)
+            lastCellsSaveMs = 0L
         }
         diagError = false
         loggedNotes = 0
@@ -1243,6 +1251,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         diagError = false
         diagStatus = "Дані отримано: ${snap.size} параметрів"
         val now = System.currentTimeMillis()
+        val withCells = r.packs.filter { it.cellVols.size >= 2 }
+        if (withCells.isNotEmpty()) {
+            lastCells = lastCells + withCells.associate { it.key to CellSnapshot(now, it.cellVols) }
+            if (!isDemo && now - lastCellsSaveMs > 60_000L) {
+                lastCellsSaveMs = now
+                prefs.saveLastCells(sn, lastCells)
+            }
+        }
         trackCodes(sn, r, now)
         capTest?.takeIf { it.sn == sn }?.let { t ->
             t.feed(now, r, snap)

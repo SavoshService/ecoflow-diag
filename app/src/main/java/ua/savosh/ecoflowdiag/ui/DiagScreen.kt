@@ -61,6 +61,7 @@ import ua.savosh.ecoflowdiag.core.Analyzer.energyString
 import ua.savosh.ecoflowdiag.core.Analyzer.fmt0
 import ua.savosh.ecoflowdiag.core.Analyzer.fmt1
 import ua.savosh.ecoflowdiag.core.Analyzer.fmt3
+import ua.savosh.ecoflowdiag.core.CellSnapshot
 import ua.savosh.ecoflowdiag.core.Chemistry
 import ua.savosh.ecoflowdiag.core.CodeEvent
 import ua.savosh.ecoflowdiag.core.CodeHistory
@@ -235,7 +236,7 @@ private fun OverviewTab(vm: AppViewModel, r: StationReport, onEditCode: (Indicat
     val single = r.packs.size == 1
     val lastBalance = vm.stationLog.firstOrNull { it.kind == StationLog.BALANCE }
     for (p in r.packs) {
-        PackCard(p, single, onEditCode, onBalance = { vm.openBalance() }, lastBalance = lastBalance)
+        PackCard(p, single, onEditCode, onBalance = { vm.openBalance() }, lastBalance = lastBalance, cached = vm.lastCells[p.key])
     }
     if (r.packs.isEmpty()) {
         SectionCard("Батарея") {
@@ -272,6 +273,7 @@ private fun PackCard(
     onEditCode: (Indicator) -> Unit,
     onBalance: () -> Unit,
     lastBalance: LogEntry?,
+    cached: CellSnapshot?,
 ) {
     val title = if (single) "Батарея" else p.title
     var expanded by rememberSaveable(key = "exp_${p.key}") { mutableStateOf(true) }
@@ -317,13 +319,13 @@ private fun PackCard(
         TextButton(onClick = { expanded = !expanded }) {
             Text(if (expanded) "▲ Згорнути" else "▼ Розширена інформація")
         }
-        if (expanded) PackDetails(p, onBalance, lastBalance)
+        if (expanded) PackDetails(p, onBalance, lastBalance, cached)
     }
 }
 
 /** Повні деталі батареї (ховаються під «Розширена інформація»). */
 @Composable
-private fun PackDetails(p: PackReport, onBalance: () -> Unit, lastBalance: LogEntry?) {
+private fun PackDetails(p: PackReport, onBalance: () -> Unit, lastBalance: LogEntry?, cached: CellSnapshot?) {
     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
     Spacer(Modifier.height(10.dp))
     p.sn?.let { KeyValue("SN пакета", it) }
@@ -356,6 +358,13 @@ private fun PackDetails(p: PackReport, onBalance: () -> Unit, lastBalance: LogEn
         if (p.cellVols.size >= 2) {
             Spacer(Modifier.height(8.dp))
             CellBars(p.cellVols, p.cellOkMv, p.cellWarnMv)
+        } else if (cached != null) {
+            // у цьому знімку списку немає — показуємо останній отриманий, чесно з часом
+            Spacer(Modifier.height(8.dp))
+            HintText("Напруги по групах — останні отримані ${cached.timeText()} (у свіжих даних станція їх ще не надіслала):")
+            CellBars(cached.cells, p.cellOkMv, p.cellWarnMv)
+        } else {
+            HintText("Напруг по кожній групі станція поки не надіслала — є лише мін/макс. Частина моделей шле їх окремими повідомленнями: зачекайте до хвилини на цьому екрані або натисніть «Оновити».")
         }
         if (p.isMain) {
             // Остаточно баланс видно лише наприкінці заряду — показуємо останню таку перевірку й кнопку запуску.

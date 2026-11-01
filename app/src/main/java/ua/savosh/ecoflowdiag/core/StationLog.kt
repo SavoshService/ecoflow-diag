@@ -135,3 +135,24 @@ object StationLog {
     private fun cyclesWord(n: Long) = plural(n, "цикл", "цикли", "циклів")
     private fun daysWord(n: Long) = plural(n, "день", "дні", "днів")
 }
+
+/**
+ * Останні отримані напруги груп однієї батареї. Частина станцій (Delta 2, River 2 тощо) шле повний список
+ * окремими повідомленнями, тож у свіжому знімку його може ще не бути — тоді показуємо останній відомий із часом.
+ */
+data class CellSnapshot(val timeMs: Long, val cells: List<Long>) {
+    fun timeText(): String = SimpleDateFormat("dd.MM HH:mm", Locale.US).format(Date(timeMs))
+
+    companion object {
+        /** { ключ батареї: {t, v:[мВ…]} } */
+        fun toJson(m: Map<String, CellSnapshot>): Map<String, Any?> =
+            m.mapValues { (_, s) -> linkedMapOf<String, Any?>("t" to s.timeMs, "v" to s.cells) }
+
+        fun fromJson(src: Map<String, Any?>): Map<String, CellSnapshot> = src.mapNotNull { (k, v) ->
+            val o = v as? Map<*, *> ?: return@mapNotNull null
+            val t = (o["t"] as? Number)?.toLong() ?: return@mapNotNull null
+            val cells = (o["v"] as? List<*>)?.mapNotNull { (it as? Number)?.toLong() }.orEmpty()
+            if (cells.size >= 2) k to CellSnapshot(t, cells) else null
+        }.toMap()
+    }
+}
