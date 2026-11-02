@@ -1,11 +1,12 @@
 package ua.savosh.ecoflowdiag.net
 
+import ua.savosh.ecoflowdiag.BuildConfig
 import ua.savosh.ecoflowdiag.core.Json
 import java.net.HttpURLConnection
 import java.net.URI
 
-/** Поточна версія застосунку (тримати в синхроні з versionName у build.gradle). */
-const val APP_VERSION = "2.21"
+/** Поточна версія застосунку — береться з versionName у build.gradle (руками не дублюється). */
+val APP_VERSION: String = BuildConfig.VERSION_NAME
 
 /**
  * АДРЕСА МАНІФЕСТА ОНОВЛЕННЯ на GitHub.

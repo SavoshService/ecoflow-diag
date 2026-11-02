@@ -1,5 +1,7 @@
 package ua.savosh.ecoflowdiag.core
 
+import ua.savosh.ecoflowdiag.BuildConfig
+
 /**
  * Стаття бази знань майстра («талмуд»). Пишеться в самому застосунку, зберігається локально.
  * [official] = true — прийшла з оновленням (лише читати); false — власна замітка користувача.
@@ -24,8 +26,8 @@ class Release(val version: String, val changes: List<String>)
 
 object Changelog {
 
-    /** Поточна версія (тримати в синхроні з versionName). */
-    const val CURRENT = "2.22"
+    /** Поточна версія — з versionName у build.gradle. */
+    val CURRENT: String = BuildConfig.VERSION_NAME
 
     /** Новіші випуски — першими. */
     val ENTRIES: List<Release> = listOf(
@@ -132,6 +134,8 @@ object Changelog {
 
     /** Випуски, новіші за [since] (показуються у «Що нового»). Якщо [since] порожній — лише поточний. */
     fun newerThan(since: String): List<Release> {
+        // Для поточної версії немає запису — тихе оновлення, вікно не показуємо.
+        if (ENTRIES.none { it.version == CURRENT }) return emptyList()
         if (since.isBlank()) return ENTRIES.filter { it.version == CURRENT }
         return ENTRIES.filter { isNewer(it.version, since) }
     }

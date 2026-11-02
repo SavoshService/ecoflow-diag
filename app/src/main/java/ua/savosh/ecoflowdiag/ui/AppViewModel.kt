@@ -778,6 +778,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         // «Що нового»: показати один раз для нової версії.
         if (prefs.lastWhatsNewVersion != Changelog.CURRENT) {
             whatsNew = Changelog.newerThan(prefs.lastWhatsNewVersion)
+            if (whatsNew.isEmpty()) prefs.lastWhatsNewVersion = Changelog.CURRENT
         }
         // Чиста інсталяція без даних — запропонувати відновити з файлу копії.
         offerRestore = !prefs.hasAnyData() && !prefs.restoreOffered

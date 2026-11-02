@@ -150,4 +150,19 @@ class ChecksTest {
         assertEquals(t0, back["bms_bmsStatus"]!!.timeMs)
         assertTrue(CellSnapshot.fromJson(mapOf("x" to mapOf("t" to 1L, "v" to listOf(3300L)))).isEmpty())
     }
+
+    @Test
+    fun appVersion_followsBuildGradle() {
+        // Банер «Доступна версія» висів після оновлення, бо версію в коді забули підняти.
+        assertEquals(ua.savosh.ecoflowdiag.BuildConfig.VERSION_NAME, ua.savosh.ecoflowdiag.net.APP_VERSION)
+        assertEquals(ua.savosh.ecoflowdiag.BuildConfig.VERSION_NAME, Changelog.CURRENT)
+    }
+
+    @Test
+    fun whatsNew_silentWhenNoEntryForCurrent() {
+        if (Changelog.ENTRIES.none { it.version == Changelog.CURRENT }) {
+            assertTrue(Changelog.newerThan("2.21").isEmpty())
+            assertTrue(Changelog.newerThan("").isEmpty())
+        }
+    }
 }
