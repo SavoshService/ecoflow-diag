@@ -1,5 +1,7 @@
 package ua.savosh.ecoflowdiag.ui
 
+import androidx.activity.compose.BackHandler
+import ua.savosh.ecoflowdiag.core.tr
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -40,10 +42,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import ua.savosh.ecoflowdiag.core.ChecklistItem
 import ua.savosh.ecoflowdiag.core.Note
@@ -67,30 +72,26 @@ fun NotesScreen(vm: AppViewModel) {
     Scaffold(
         topBar = {
             TopAppBar(
-                navigationIcon = { IconButton(onClick = { vm.back() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад") } },
-                title = { Text("📝 Замітки", fontWeight = FontWeight.Bold) },
+                navigationIcon = { IconButton(onClick = { vm.back() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr("Назад")) } },
+                title = { FitText(tr("📝 Замітки"), fontWeight = FontWeight.Bold) },
             )
         },
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = { editingId = null; editorOpen = true },
-                icon = { Text("+", style = MaterialTheme.typography.titleLarge) },
-                text = { Text("Нова замітка") },
+                icon = { Text("+", style = MaterialTheme.typography.titleLarge, modifier = Modifier.semantics { contentDescription = tr("Нова замітка") }) },
+                text = { Text(tr("Нова замітка")) },
             )
         },
     ) { pad ->
         if (list.isEmpty()) {
-            Column(
-                Modifier.fillMaxSize().padding(pad).padding(32.dp),
-                verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
+            CenteredScroll(Modifier.fillMaxSize().padding(pad).padding(32.dp)) {
                 Text("📝", style = MaterialTheme.typography.headlineMedium)
                 Spacer(Modifier.height(8.dp))
-                Text("Поки що немає заміток", style = MaterialTheme.typography.titleMedium)
+                Text(tr("Поки що немає заміток"), style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Створюйте прості замітки, чеклисти з галочками або нотатки до конкретної станції. " +
-                        "Можна додати нагадування, щоб не забути.",
+                    tr("Створюйте прості замітки, чеклисти з галочками або нотатки до конкретної станції. Можна додати нагадування, щоб не забути."),
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                 )
@@ -143,7 +144,7 @@ private fun NoteCard(n: Note, vm: AppViewModel, onOpen: () -> Unit) {
             else -> {
                 if (n.body.isNotBlank()) {
                     Spacer(Modifier.height(4.dp))
-                    Text(n.body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface, maxLines = 4)
+                    Text(n.body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface, maxLines = 4, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
@@ -168,11 +169,12 @@ private fun NoteEditor(vm: AppViewModel, noteId: Long?, onClose: () -> Unit) {
     val items = remember { mutableStateListOf<ChecklistItem>().apply { existing?.items?.let { addAll(it) } } }
     var confirmDel by remember { mutableStateOf(false) }
 
+    BackHandler(onBack = onClose)
     Scaffold(
         topBar = {
             TopAppBar(
-                navigationIcon = { IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад") } },
-                title = { Text(if (noteId == null) "Нова замітка" else "Замітка", fontWeight = FontWeight.Bold) },
+                navigationIcon = { IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr("Назад")) } },
+                title = { FitText(if (noteId == null) tr("Нова замітка") else tr("Замітка"), fontWeight = FontWeight.Bold) },
                 actions = {
                     if (existing != null) IconButton(onClick = { confirmDel = true }) { Text("🗑", style = MaterialTheme.typography.titleMedium) }
                 },
@@ -180,26 +182,26 @@ private fun NoteEditor(vm: AppViewModel, noteId: Long?, onClose: () -> Unit) {
         },
     ) { pad ->
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(pad),
+            modifier = Modifier.fillMaxSize().formPadding(pad),
             contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 32.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
-                Text("Тип", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(tr("Тип"), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(6.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    KindChip("📝 Замітка", kind == Notes.PLAIN, { kind = Notes.PLAIN }, Modifier.weight(1f))
-                    KindChip("☑ Чеклист", kind == Notes.CHECKLIST, { kind = Notes.CHECKLIST }, Modifier.weight(1f))
-                    KindChip("🔋 Станція", kind == Notes.STATION, { kind = Notes.STATION }, Modifier.weight(1f))
+                    KindChip(tr("📝 Замітка"), kind == Notes.PLAIN, { kind = Notes.PLAIN }, Modifier.weight(1f))
+                    KindChip(tr("☑ Чеклист"), kind == Notes.CHECKLIST, { kind = Notes.CHECKLIST }, Modifier.weight(1f))
+                    KindChip(tr("🔋 Станція"), kind == Notes.STATION, { kind = Notes.STATION }, Modifier.weight(1f))
                 }
             }
-            item { OutlinedTextField(title, { title = it }, Modifier.fillMaxWidth(), label = { Text("Заголовок") }, singleLine = true) }
+            item { OutlinedTextField(title, { title = it }, Modifier.fillMaxWidth(), label = { Text(tr("Заголовок")) }, singleLine = true) }
 
             if (kind == Notes.STATION) {
                 item {
-                    Text("Станція", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(tr("Станція"), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     if (vm.stations.isEmpty()) {
-                        Text("Спершу додайте станцію у списку станцій.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(tr("Спершу додайте станцію у списку станцій."), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 items(vm.stations, key = { it.sn }) { st ->
@@ -221,43 +223,43 @@ private fun NoteEditor(vm: AppViewModel, noteId: Long?, onClose: () -> Unit) {
 
             if (kind == Notes.CHECKLIST) {
                 item {
-                    Text("Пункти", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(tr("Пункти"), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 items(items.size) { i ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(checked = items[i].done, onCheckedChange = { items[i] = items[i].copy(done = it) })
                         OutlinedTextField(
                             items[i].text, { items[i] = items[i].copy(text = it) },
-                            Modifier.weight(1f), singleLine = true, placeholder = { Text("Пункт…") },
+                            Modifier.weight(1f), singleLine = true, placeholder = { Text(tr("Пункт…")) },
                         )
                         IconButton(onClick = { items.removeAt(i) }) { Text("✕") }
                     }
                 }
                 item {
-                    TextButton(onClick = { items.add(ChecklistItem("")) }) { Text("＋ Додати пункт") }
+                    TextButton(onClick = { items.add(ChecklistItem("")) }) { Text(tr("＋ Додати пункт")) }
                 }
             } else {
                 item {
-                    OutlinedTextField(body, { body = it }, Modifier.fillMaxWidth().height(180.dp), label = { Text("Текст") })
+                    OutlinedTextField(body, { body = it }, Modifier.fillMaxWidth().height(180.dp), label = { Text(tr("Текст")) })
                 }
             }
 
             item {
-                Text("Нагадування", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(tr("Нагадування"), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(6.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    KindChip("Немає", reminderAt == null, { reminderAt = null }, Modifier.weight(1f))
-                    KindChip("+1 год", false, { reminderAt = presetTime(1, 0) }, Modifier.weight(1f))
-                    KindChip("+3 год", false, { reminderAt = presetTime(3, 0) }, Modifier.weight(1f))
+                    KindChip(tr("Немає"), reminderAt == null, { reminderAt = null }, Modifier.weight(1f))
+                    KindChip(tr("+1 год"), false, { reminderAt = presetTime(1, 0) }, Modifier.weight(1f))
+                    KindChip(tr("+3 год"), false, { reminderAt = presetTime(3, 0) }, Modifier.weight(1f))
                 }
                 Spacer(Modifier.height(6.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    KindChip("Завтра 9:00", false, { reminderAt = tomorrow9() }, Modifier.weight(1f))
-                    KindChip("+3 дні", false, { reminderAt = presetTime(0, 3) }, Modifier.weight(1f))
+                    KindChip(tr("Завтра 9:00"), false, { reminderAt = tomorrow9() }, Modifier.weight(1f))
+                    KindChip(tr("+3 дні"), false, { reminderAt = presetTime(0, 3) }, Modifier.weight(1f))
                 }
                 reminderAt?.let {
                     Spacer(Modifier.height(6.dp))
-                    Text("🔔 Нагадаю: ${fmtTime(it)}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                    Text(tr("🔔 Нагадаю: {0}", fmtTime(it)), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
                 }
             }
 
@@ -268,8 +270,8 @@ private fun NoteEditor(vm: AppViewModel, noteId: Long?, onClose: () -> Unit) {
                         vm.saveNote(noteId, kind, title, body, cleanItems, stationSn, reminderAt)
                         onClose()
                     },
-                    icon = { Text("✔", style = MaterialTheme.typography.titleMedium) },
-                    text = { Text(if (noteId == null) "Зберегти" else "Зберегти зміни") },
+                    icon = { Text("✔", style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { contentDescription = tr("Зберегти") }) },
+                    text = { Text(if (noteId == null) tr("Зберегти") else tr("Зберегти зміни")) },
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -278,10 +280,10 @@ private fun NoteEditor(vm: AppViewModel, noteId: Long?, onClose: () -> Unit) {
     if (confirmDel && existing != null) {
         AlertDialog(
             onDismissRequest = { confirmDel = false },
-            title = { Text("Видалити замітку?") },
-            text = { Text("«${existing.title.ifBlank { "Без назви" }}» буде стерто.") },
-            confirmButton = { TextButton(onClick = { confirmDel = false; vm.deleteNote(existing.id); onClose() }) { Text("Видалити") } },
-            dismissButton = { TextButton(onClick = { confirmDel = false }) { Text("Скасувати") } },
+            title = { Text(tr("Видалити замітку?")) },
+            text = { DialogText(tr("«{0}» буде стерто.", existing.title.ifBlank { tr("Без назви") })) },
+            confirmButton = { TextButton(onClick = { confirmDel = false; vm.deleteNote(existing.id); onClose() }) { Text(tr("Видалити")) } },
+            dismissButton = { TextButton(onClick = { confirmDel = false }) { Text(tr("Скасувати")) } },
         )
     }
 }
@@ -295,9 +297,9 @@ private fun KindChip(label: String, selected: Boolean, onClick: () -> Unit, modi
             .clickable(onClick = onClick).padding(vertical = 10.dp, horizontal = 4.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(label, style = MaterialTheme.typography.labelMedium,
+        FitText(label, style = MaterialTheme.typography.labelMedium,
             color = if (selected) c else MaterialTheme.colorScheme.onSurfaceVariant,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal, textAlign = TextAlign.Center, maxLines = 1)
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal, textAlign = TextAlign.Center)
     }
 }
 

@@ -1,5 +1,9 @@
 package ua.savosh.ecoflowdiag.ui
 
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.foundation.layout.requiredWidth
+import androidx.compose.foundation.layout.BoxWithConstraints
+import ua.savosh.ecoflowdiag.core.tr
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.LocalContentColor
@@ -29,32 +33,36 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun MainNavBar(vm: AppViewModel) {
     val current = vm.mainTab
-    NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
-        for (tab in MainTab.entries) {
-            NavigationBarItem(
-                selected = tab == current,
-                onClick = { if (tab != current) vm.openTab(tab) },
-                icon = { TabGlyph(tab) },
-                label = { Text(tab.title, maxLines = 1, softWrap = false, overflow = TextOverflow.Clip, style = MaterialTheme.typography.labelSmall) },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = MaterialTheme.colorScheme.primary,
-                    selectedTextColor = MaterialTheme.colorScheme.primary,
-                    indicatorColor = MaterialTheme.colorScheme.primaryContainer,
-                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                ),
-            )
+    BoxWithConstraints {
+        // Панель лишає підпису лише ~57 dp із 72: «Замовлення» ставало дрібним і все одно обрізалось. Даємо всю ширину пункту.
+        val labelWidth = maxWidth / MainTab.entries.size - 2.dp
+        NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
+            for (tab in MainTab.entries) {
+                NavigationBarItem(
+                    selected = tab == current,
+                    onClick = { if (tab != current) vm.openTab(tab) },
+                    icon = { TabGlyph(tab) },
+                    label = { FitText(tab.title, Modifier.requiredWidth(labelWidth), textAlign = TextAlign.Center) },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                        selectedTextColor = MaterialTheme.colorScheme.primary,
+                        indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    ),
+                )
+            }
         }
     }
 }
 
 private val MainTab.title: String
     get() = when (this) {
-        MainTab.STATIONS -> "Станції"
-        MainTab.ORDERS -> "Замовлення"
-        MainTab.STOCK -> "Склад"
-        MainTab.FINANCE -> "Фінанси"
-        MainTab.MORE -> "Ще"
+        MainTab.STATIONS -> tr("Станції")
+        MainTab.ORDERS -> tr("Замовлення")
+        MainTab.STOCK -> tr("Склад")
+        MainTab.FINANCE -> tr("Фінанси")
+        MainTab.MORE -> tr("Ще")
     }
 
 // ---------- Іконки розділів: прості лінійні значки, фарбуються кольором панелі ----------

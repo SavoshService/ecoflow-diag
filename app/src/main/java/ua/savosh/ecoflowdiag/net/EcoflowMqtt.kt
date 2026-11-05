@@ -1,5 +1,6 @@
 package ua.savosh.ecoflowdiag.net
 
+import ua.savosh.ecoflowdiag.core.tr
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken
 import org.eclipse.paho.client.mqttv3.MqttCallback
 import org.eclipse.paho.client.mqttv3.MqttClient
@@ -27,6 +28,12 @@ class EcoflowMqtt(
     private val onMessage: (topic: String, payload: ByteArray) -> Unit,
     private val onLog: (String) -> Unit,
 ) {
+    companion object {
+        /** Без цього publish і subscribe чекають підтвердження брокера без обмеження. */
+        private const val WAIT_MS = 15_000L
+        private const val SUBACK_DENIED = 0x80
+    }
+
     val dataTopic = "/app/device/property/$sn"
     val getTopic = "/app/$userId/$sn/thing/property/get"
     val getReplyTopic = "/app/$userId/$sn/thing/property/get_reply"
@@ -47,17 +54,22 @@ class EcoflowMqtt(
         }
         val scheme = if (creds.protocol.contains("ws", ignoreCase = true)) "wss" else "ssl"
         val uri = "$scheme://${creds.host}:${creds.port}"
-        onLog("MQTT: підключення до $uri")
-        val c = MqttClient(uri, clientId, MemoryPersistence())
+        onLog(tr("MQTT: підключення до {0}", uri))
+        val c = try {
+            MqttClient(uri, clientId, MemoryPersistence())
+        } catch (e: Exception) {
+            throw ApiException(tr("MQTT: некоректна адреса брокера {0}: {1}", uri, e.message))
+        }
+        c.timeToWait = WAIT_MS
         c.setCallback(object : MqttCallback {
             override fun connectionLost(cause: Throwable?) {
                 if (closed) return
                 val why = when (cause) {
                     is MqttException -> describe(cause)
-                    null -> "без причини"
+                    null -> tr("без причини")
                     else -> "${cause.javaClass.simpleName}: ${cause.message}"
                 }
-                onLog("MQTT: з'єднання втрачено — $why")
+                onLog(tr("MQTT: з'єднання втрачено — {0}", why))
             }
 
             override fun messageArrived(topic: String?, message: MqttMessage?) {
@@ -65,7 +77,7 @@ class EcoflowMqtt(
                 try {
                     onMessage(topic, message.payload)
                 } catch (e: Exception) {
-                    onLog("Помилка обробки повідомлення: ${e.message}")
+                    onLog(tr("Помилка обробки повідомлення: {0}", e.message))
                 }
             }
 
@@ -75,7 +87,7 @@ class EcoflowMqtt(
             userName = creds.username
             password = creds.password.toCharArray()
             isCleanSession = true
-            keepAliveInterval = 30
+            keepAliveInterval = 20
             connectionTimeout = 20
             isAutomaticReconnect = false
             socketFactory = SSLSocketFactory.getDefault()
@@ -83,7 +95,12 @@ class EcoflowMqtt(
         }
         try {
             c.connect(opts)
-            c.subscribe(arrayOf(dataTopic, getReplyTopic, setReplyTopic), intArrayOf(1, 1, 1))
+            val granted = intArrayOf(1, 1, 1)
+            c.subscribe(arrayOf(dataTopic, getReplyTopic, setReplyTopic), granted)
+            if (granted.all { it == SUBACK_DENIED }) {
+                shutdown(c)
+                throw StationDenied(tr("Хмара EcoFlow не дозволила читати станцію {0}: перевірте серійний номер і чи додана вона саме в цей акаунт", sn))
+            }
         } catch (e: MqttException) {
             shutdown(c)
             val code = e.reasonCode
@@ -92,14 +109,16 @@ class EcoflowMqtt(
             ) {
                 throw MqttAuthException("MQTT: ${describe(e)}")
             }
-            throw ApiException("MQTT: ${describe(e)}")
+            throw NetworkException("MQTT: ${describe(e)}")
         }
+        // Спершу запам'ятати, потім перевірити: так close() з іншого потоку не розминеться з новим з'єднанням.
+        client = c
         if (closed) {
+            client = null
             shutdown(c)
             return
         }
-        client = c
-        onLog("MQTT: підключено, підписка на станцію $sn")
+        onLog(tr("MQTT: підключено, підписка на станцію {0}", sn))
     }
 
     fun publish(topic: String, payload: ByteArray): Boolean {
@@ -108,7 +127,7 @@ class EcoflowMqtt(
             c.publish(topic, payload, 1, false)
             true
         } catch (e: MqttException) {
-            onLog("MQTT: не вдалося надіслати запит: ${describe(e)}")
+            onLog(tr("MQTT: не вдалося надіслати запит: {0}", describe(e)))
             false
         }
     }
@@ -137,12 +156,13 @@ class EcoflowMqtt(
     private fun describe(e: MqttException): String = when (e.reasonCode) {
         MqttException.REASON_CODE_FAILED_AUTHENTICATION.toInt(),
         MqttException.REASON_CODE_NOT_AUTHORIZED.toInt(),
-        -> "брокер відхилив облікові дані (код ${e.reasonCode})"
+        -> tr("брокер відхилив облікові дані (код {0})", e.reasonCode)
         MqttException.REASON_CODE_SERVER_CONNECT_ERROR.toInt(),
         MqttException.REASON_CODE_CLIENT_TIMEOUT.toInt(),
-        -> "брокер недоступний (код ${e.reasonCode}): ${e.cause?.message ?: e.message}"
+        -> tr("брокер недоступний (код {0}): {1}", e.reasonCode, e.cause?.message ?: e.message)
+        MqttException.REASON_CODE_INVALID_CLIENT_ID.toInt() -> tr("брокер не прийняв ідентифікатор клієнта (код {0})", e.reasonCode)
         MqttException.REASON_CODE_CONNECTION_LOST.toInt() ->
-            "зв'язок обірвано (код ${e.reasonCode})" + (e.cause?.let { ": ${it.javaClass.simpleName} ${it.message ?: ""}" } ?: "")
-        else -> "${e.message ?: "помилка"} (код ${e.reasonCode})" + (e.cause?.let { ": ${it.message}" } ?: "")
+            tr("зв'язок обірвано (код {0})", e.reasonCode) + (e.cause?.let { ": ${it.javaClass.simpleName} ${it.message ?: ""}" } ?: "")
+        else -> tr("{0} (код {1})", e.message ?: tr("помилка"), e.reasonCode) + (e.cause?.let { ": ${it.message}" } ?: "")
     }
 }

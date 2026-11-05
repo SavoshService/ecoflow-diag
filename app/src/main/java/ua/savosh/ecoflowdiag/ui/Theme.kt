@@ -5,6 +5,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.graphics.Color
 import ua.savosh.ecoflowdiag.core.Level
 
@@ -51,9 +55,21 @@ private val LightColors = lightColorScheme(
     error = Color(0xFFC62828),
 )
 
+/** Вузький екран (або збільшений масштаб системи) вважаємо щонайменше такої ширини, щоб написи не ламались. */
+private const val MIN_WIDTH_DP = 340f
+
+/** Системний шрифт зростає лише до цієї межі: далі кнопки й таблиці перестають уміщатися. */
+private const val MAX_FONT_SCALE = 1.15f
+
 @Composable
 fun SavoshTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = if (isSystemInDarkTheme()) DarkColors else LightColors, content = content)
+    val base = LocalDensity.current
+    val widthDp = LocalConfiguration.current.screenWidthDp.toFloat()
+    val scale = if (widthDp in 1f..MIN_WIDTH_DP) widthDp / MIN_WIDTH_DP else 1f
+    val adapted = Density(base.density * scale, base.fontScale.coerceAtMost(MAX_FONT_SCALE))
+    CompositionLocalProvider(LocalDensity provides adapted) {
+        MaterialTheme(colorScheme = if (isSystemInDarkTheme()) DarkColors else LightColors, content = content)
+    }
 }
 
 fun levelColor(level: Level): Color = when (level) {

@@ -1,5 +1,7 @@
 package ua.savosh.ecoflowdiag.work
 
+import ua.savosh.ecoflowdiag.data.Prefs
+import ua.savosh.ecoflowdiag.core.I18n
 import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.OneTimeWorkRequestBuilder
@@ -11,6 +13,7 @@ import java.util.concurrent.TimeUnit
 /** Нагадування по замітці: показує сповіщення у призначений час. */
 class ReminderWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
     override suspend fun doWork(): Result {
+        I18n.lang = Prefs(applicationContext).appLang
         val id = inputData.getLong(KEY_ID, -1L)
         val title = inputData.getString(KEY_TITLE) ?: ""
         if (id >= 0) Notifier.showReminder(applicationContext, id, title)

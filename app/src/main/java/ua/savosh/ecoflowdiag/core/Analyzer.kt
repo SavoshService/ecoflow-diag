@@ -4,29 +4,34 @@ import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-enum class Level(val rank: Int, val title: String) {
-    UNKNOWN(-1, "Немає даних"),
-    GOOD(0, "Добре"),
-    OK(1, "Норма"),
-    WARN(2, "Увага"),
-    BAD(3, "Погано"),
-    CRITICAL(4, "Критично");
+enum class Level(val rank: Int, private val titleKey: String) {
+    UNKNOWN(-1, tk("Немає даних")),
+    GOOD(0, tk("Добре")),
+    OK(1, tk("Норма")),
+    WARN(2, tk("Увага")),
+    BAD(3, tk("Погано")),
+    CRITICAL(4, tk("Критично"));
 
     fun worse(other: Level): Level = if (other.rank > rank) other else this
 
     /** Підпис загального стану станції: «Добре» тут означає лише відсутність зауважень, а не оцінку батареї. */
     val statusTitle: String
         get() = when (this) {
-            UNKNOWN -> "Немає даних"
-            GOOD, OK -> "Без зауважень"
+            UNKNOWN -> tr("Немає даних")
+            GOOD, OK -> tr("Без зауважень")
             else -> title
-        }
+        };
+
+    val title: String get() = tr(titleKey)
+
 }
 
-enum class Chemistry(val title: String, val short: String, val nominalCellV: Double, val ratedCycles: Int) {
-    LFP("LiFePO4 (залізофосфат)", "LFP", 3.2, 3000),
+enum class Chemistry(private val titleKey: String, val short: String, val nominalCellV: Double, val ratedCycles: Int) {
+    LFP(tk("LiFePO4 (залізофосфат)"), "LFP", 3.2, 3000),
     NCM("Li-ion NCM", "NCM", 3.6, 800),
-    UNKNOWN("не визначено", "?", 0.0, 0),
+    UNKNOWN(tk("не визначено"), "?", 0.0, 0);
+
+    val title: String get() = tr(titleKey)
 }
 
 /**
@@ -38,10 +43,10 @@ object Health {
     /** [chip] — для значка, [verdict] — висновок у застосунку, [report] — оцінка у звіті клієнту. */
     class Grade(val level: Level, val chip: String, val verdict: String, val report: String)
 
-    private val EXCELLENT = Grade(Level.GOOD, "Відмінно", "Відмінний стан батареї", "Відмінний")
-    private val GOOD = Grade(Level.GOOD, "Добре", "Добрий стан батареї", "Добрий")
-    private val WORN = Grade(Level.WARN, "Увага", "Помітний знос батареї", "Потребує уваги")
-    private val POOR = Grade(Level.BAD, "Погано", "Сильний знос батареї", "Незадовільний")
+    private val EXCELLENT get() = Grade(Level.GOOD, tr("Відмінно"), tr("Відмінний стан батареї"), tr("Відмінний"))
+    private val GOOD get() = Grade(Level.GOOD, tr("Добре"), tr("Добрий стан батареї"), tr("Добрий"))
+    private val WORN get() = Grade(Level.WARN, tr("Увага"), tr("Помітний знос батареї"), tr("Потребує уваги"))
+    private val POOR get() = Grade(Level.BAD, tr("Погано"), tr("Сильний знос батареї"), tr("Незадовільний"))
 
     fun of(soh: Double?): Grade? {
         val s = soh?.roundToInt() ?: return null
@@ -123,6 +128,8 @@ class PackReport(
     val waterIn: Boolean,
     val firmware: String?,
     val hwVersion: String?,
+    /** Хімія за напругами суперечить моделі, яку дає серійний номер. */
+    val modelMismatch: Boolean,
     /** Загальний статус батареї: найгірше зі здоров'я та зауважень (для підсумку станції й техзвіту). */
     val level: Level,
     /** Оцінка батареї лише за SOH (шкала [Health]); null — SOH невідомий. */
@@ -167,18 +174,17 @@ object Analyzer {
     private val PACK_MARKERS = setOf("cycles", "designCap", "fullCap", "soh")
 
     /** Біти регістра SYS_STAT чипа BQ769x0 (0–5 — аварійні, 6 — резерв, 7 — CC_READY). */
-    private val BQ_ALARM_BITS = listOf(
-        0 to "OCD — перевантаження струмом розряду",
-        1 to "SCD — коротке замикання",
-        2 to "OV — перенапруга групи",
-        3 to "UV — недонапруга групи",
-        4 to "OVRD_ALERT — зовнішня тривога",
-        5 to "DEVICE_XREADY — помилка чипа AFE",
+    private val BQ_ALARM_BITS get() = listOf(
+        0 to tr("OCD — перевантаження струмом розряду"),
+        1 to tr("SCD — коротке замикання"),
+        2 to tr("OV — перенапруга групи"),
+        3 to tr("UV — недонапруга групи"),
+        4 to tr("OVRD_ALERT — зовнішня тривога"),
+        5 to tr("DEVICE_XREADY — помилка чипа AFE"),
     )
 
-    const val ENERGY_NOTE =
-        "Ці лічильники рахують енергію, що пройшла через станцію, а не через батарею: у режимі байпасу (UPS) " +
-            "транзит із мережі в навантаження теж додається. Ресурс батареї оцінюйте лише за лічильником циклів BMS."
+    val ENERGY_NOTE: String
+        get() = tr("Ці лічильники рахують енергію, що пройшла через станцію, а не через батарею: у режимі байпасу (UPS) транзит із мережі в навантаження теж додається. Ресурс батареї оцінюйте лише за лічильником циклів BMS.")
 
     /** Стан станції, потрібний для пояснень по батареях. */
     private class Ctx(
@@ -192,16 +198,13 @@ object Analyzer {
         val generation = QuotaStore.detectGeneration(params.keys)
         val modelInfo = Models.bySn(sn)
         val ctx = Ctx(
-            maxChargeSoc = numOf(params["ems.maxChargeSoc"]) ?: numOf(params["bms_emsStatus.maxChargeSoc"]),
-            minDsgSoc = numOf(params["ems.minDsgSoc"]) ?: numOf(params["bms_emsStatus.minDsgSoc"]),
+            maxChargeSoc = chargeLimit(params),
+            minDsgSoc = dischargeLimit(params),
             iconBmsErr = numOf(params["pd.iconBmsErrState"])?.toLong(),
             codeNotes = codeNotes,
         )
 
-        val prefixes = params.keys.mapNotNull { k ->
-            val i = k.lastIndexOf('.')
-            if (i > 0 && k.substring(i + 1) in PACK_MARKERS) k.substring(0, i) else null
-        }.filter { it != "display" && it != "runtime" && !it.endsWith("Info") }.toSortedSet()
+        val prefixes = packPrefixes(params.keys)
 
         val packs = ArrayList<PackReport>()
         val gen3Count = prefixes.count { it.startsWith("bmsPack") }
@@ -216,9 +219,13 @@ object Analyzer {
 
         // Прибираємо «фантомні» додаткові батареї: прошивка часто завжди виставляє поля слейв-BMS,
         // навіть коли додаткової батареї фізично немає. Таку залишаємо лише якщо в неї є реальні дані.
+        fun hasRealData(p: PackReport) = (p.designCapMah ?: 0) > 0 || (p.volMv ?: 0) > 0 || (p.fullCapMah ?: 0) > 0
+        // Деякі River 2 шлють ті самі дані під двома назвами (bmsMaster і bms_bmsStatus), одна з них порожня.
+        val mains = packs.filter { it.isMain }
+        val mainKept = if (mains.size > 1) mains.firstOrNull { hasRealData(it) } ?: mains.first() else null
         val realPacks = packs.filter { p ->
             // Реальна батарея завжди має ємність і напругу; у «фантомного» слейва вони 0/порожні.
-            p.isMain || (p.designCapMah ?: 0) > 0 || (p.volMv ?: 0) > 0 || (p.fullCapMah ?: 0) > 0
+            if (p.isMain) mainKept == null || p === mainKept else hasRealData(p)
         }
         if (realPacks.size != packs.size) {
             packs.clear()
@@ -236,27 +243,29 @@ object Analyzer {
             packs.mapNotNull(sel).takeIf { it.size == packs.size && it.isNotEmpty() }?.sum()
 
         val summary = when {
-            packs.isEmpty() -> "Даних про батареї ще немає"
+            packs.isEmpty() -> tr("Даних про батареї ще немає")
             else -> {
                 val worst = packs.maxByOrNull { it.level.rank }!!
                 val soh = worst.sohEffective?.let { " (SOH ${fmt0(it)}%)" } ?: ""
                 val prot = protections.filter { it.level.rank >= Level.WARN.rank }
                 val protTxt = if (prot.isNotEmpty() && prot.maxOf { it.level.rank } > worst.level.rank) {
-                    " · станція: ${prot.first().title.lowercase()} — ${prot.first().value}"
+                    tr(" · станція: {0} — {1}", prot.first().title.lowercase(), prot.first().value)
                 } else {
                     ""
                 }
                 if (packs.size == 1) {
                     "${worst.title}$soh — ${worst.verdict}$protTxt"
                 } else {
-                    "${packsWord(packs.size)} · найгірша: ${worst.title}$soh — ${worst.verdict}$protTxt"
+                    tr("{0} · найгірша: {1}{2} — {3}{4}", packsWord(packs.size), worst.title, soh, worst.verdict, protTxt)
                 }
             }
         }
 
+        // Напруги сильніші за таблицю префіксів: не називаємо станцію моделлю, якою вона бути не може.
+        val mismatch = packs.firstOrNull { it.isMain }?.modelMismatch == true
         return StationReport(
             sn = sn,
-            model = modelInfo?.name,
+            model = (if (mismatch) modelInfo?.ncmName else modelInfo?.name)?.let { tr(it) },
             generation = if (generation != Generation.UNKNOWN) generation else modelInfo?.generation ?: Generation.UNKNOWN,
             packs = packs,
             usage = buildUsage(params),
@@ -277,6 +286,34 @@ object Analyzer {
 
     private const val GEN3_SUMMARY = "gen3summary"
 
+    /** Назви батарей (bmsMaster, bms_slave…) серед ключів даних. */
+    private fun packPrefixes(keys: Collection<String>): Set<String> = keys.mapNotNull { k ->
+        val i = k.lastIndexOf('.')
+        if (i > 0 && k.substring(i + 1) in PACK_MARKERS) k.substring(0, i) else null
+    }.filter { it != "display" && it != "runtime" && !it.endsWith("Info") }.toSortedSet()
+
+    /** Чи є серед ключів дані батареї. Перші повідомлення станції часто містять лише виходи й потужність. */
+    fun hasBatteryData(keys: Collection<String>): Boolean =
+        packPrefixes(keys).isNotEmpty() || "display.bmsDesignCap" in keys || "runtime.bmsFullCap" in keys
+
+    /** Ліміт заряду: кожне покоління кладе його під свій ключ. */
+    fun chargeLimit(p: Map<String, Any?>): Double? =
+        listOf("ems.maxChargeSoc", "bms_emsStatus.maxChargeSoc", "bmsMaster.maxChargeSoc", "inv.maxChargeSoc").firstNotNullOfOrNull { numOf(p[it]) }
+
+    fun dischargeLimit(p: Map<String, Any?>): Double? =
+        listOf("ems.minDsgSoc", "bms_emsStatus.minDsgSoc", "bmsMaster.minDsgSoc", "inv.minDsgSoc").firstNotNullOfOrNull { numOf(p[it]) }
+
+    /**
+     * Докази NCM за напругою. LFP не тримає всі групи вище ≈3.65 В: BMS зупиняє заряд раніше.
+     * Одна перезаряджена група доказом не є, тому дивимось на середню й найнижчу, а не на найвищу.
+     */
+    private const val NCM_PROVEN_AVG_MV = 3700.0
+    private const val NCM_PROVEN_MIN_MV = 3600L
+
+    /** Без заряду в середині діапазону LFP лежить на плато ≈3.3 В, а NCM уже від 10% тримає понад 3.5 В. */
+    private const val NCM_REST_AVG_MV = 3500.0
+    private const val NCM_REST_MIN_MV = 3450L
+
     /**
      * Плато LFP: між цими напругами групи напруга майже не залежить від заряду, тож розбалансовані групи
      * виглядають однаково. Баланс чесно видно лише біля країв — наприкінці заряду чи розряду.
@@ -285,9 +322,9 @@ object Analyzer {
     private const val LFP_TOP_KNEE_MV = 3400L
 
     private fun packsWord(n: Int): String = when {
-        n == 1 -> "1 батарея"
-        n in 2..4 -> "$n батареї"
-        else -> "$n батарей"
+        n == 1 -> tr("1 батарея")
+        n in 2..4 -> tr("{0} батареї", n)
+        else -> tr("{0} батарей", n)
     }
 
     // ---------------------------------------------------------------- батарея
@@ -322,16 +359,16 @@ object Analyzer {
     }
 
     private fun titleFor(prefix: String, gen3Count: Int): Pair<String, Boolean> {
-        if (prefix == "bmsMaster" || prefix == "bms_bmsStatus" || prefix == "inv") return "Основна батарея" to true
-        if (prefix == GEN3_SUMMARY) return "Основна батарея" to true
-        if (prefix == "bms_slave") return "Додаткова батарея" to false
+        if (prefix == "bmsMaster" || prefix == "bms_bmsStatus" || prefix == "inv") return tr("Основна батарея") to true
+        if (prefix == GEN3_SUMMARY) return tr("Основна батарея") to true
+        if (prefix == "bms_slave") return tr("Додаткова батарея") to false
         if (prefix.startsWith("bmsPack")) {
             val n = prefix.removePrefix("bmsPack")
-            return if (gen3Count <= 1) "Батарея" to true else "Батарейний блок №$n" to false
+            return if (gen3Count <= 1) tr("Батарея") to true else tr("Батарейний блок №{0}", n) to false
         }
         val digits = prefix.takeLastWhile { it.isDigit() }
         if (prefix.contains("Slave", ignoreCase = true) || prefix.contains("slave")) {
-            return (if (digits.isNotEmpty()) "Додаткова батарея $digits" else "Додаткова батарея") to false
+            return (if (digits.isNotEmpty()) tr("Додаткова батарея {0}", digits) else tr("Додаткова батарея")) to false
         }
         return prefix to false
     }
@@ -410,14 +447,23 @@ object Analyzer {
         // --- паспорт моделі (для основної батареї — за моделлю станції)
         val modelPassport = if (isMain) Models.passportForModel(modelName) else null
 
-        // --- хімія. Для основної батареї відомої моделі — з паспорта: напруга може обманути
-        // (перезаряджена група LFP легко перевищить 3.75 В і «стане» NCM). Інакше — за напругами й групами.
+        // --- хімія. Спершу фізика: якщо напруги можливі лише для однієї хімії, таблиця серійних номерів не сперечається
+        // (той самий префікс спільнота приписує різним моделям, а пакет могли замінити). Далі — паспорт моделі,
+        // бо за однією високою групою LFP легко «стане» NCM. Для решти — за напругами й групами.
         // Додаткові батареї визначаємо лише за параметрами: до станції бувають сумісні батареї іншої хімії.
+        val modelChem = modelPassport?.chemistry
+        val ncmProven = avgCell != null && minCell != null && (
+            (avgCell >= NCM_PROVEN_AVG_MV && minCell >= NCM_PROVEN_MIN_MV) ||
+                (soc != null && soc in 10.0..85.0 && (amp ?: 0L) <= 300 && avgCell >= NCM_REST_AVG_MV && minCell >= NCM_REST_MIN_MV)
+            )
+        val lfpProven = maxCell != null && soc != null && soc >= 60 && maxCell in 2800L..3450L
         var chem = Chemistry.UNKNOWN
         var chemSure = false
         when {
-            modelPassport?.chemistry != null -> { chem = modelPassport.chemistry; chemSure = true }
-            maxCell != null && maxCell >= 3750 -> { chem = Chemistry.NCM; chemSure = true }
+            ncmProven -> { chem = Chemistry.NCM; chemSure = true }
+            modelChem == Chemistry.NCM && lfpProven -> { chem = Chemistry.LFP; chemSure = true }
+            modelChem != null -> { chem = modelChem; chemSure = true }
+            maxCell != null && maxCell >= 3750 && (minCell == null || minCell >= NCM_PROVEN_MIN_MV) -> { chem = Chemistry.NCM; chemSure = true }
             maxCell != null && soc != null && soc >= 60 && maxCell in 2800L..3600L -> { chem = Chemistry.LFP; chemSure = true }
             maxCell != null && soc != null && soc >= 30 && maxCell in 2800L..3450L -> { chem = Chemistry.LFP; chemSure = true }
             series == 14 && (vol ?: 0) > 40000 -> { chem = Chemistry.NCM; chemSure = true }
@@ -429,42 +475,58 @@ object Analyzer {
             generation == Generation.GEN1 -> chem = Chemistry.NCM
             generation == Generation.GEN2 || generation == Generation.GEN3 -> chem = Chemistry.LFP
         }
+        val modelMismatch = modelChem != null && chem != modelChem
 
         val packVnom = if (chem != Chemistry.UNKNOWN && series != null) series * chem.nominalCellV else null
         val designWh = if (packVnom != null && design != null) design / 1000.0 * packVnom else null
         val fullWh = if (packVnom != null && full != null) full / 1000.0 * packVnom else null
         val eqCycles = if (accuDsgE != null && designWh != null && designWh > 0) accuDsgE / designWh else null
 
-        val passport = modelPassport ?: Models.passportForPack(chem, design, series)
+        val byPack = Models.passportForPack(chem, design, series)
+        val passport = when {
+            modelMismatch -> byPack
+            modelPassport?.wh != null -> modelPassport
+            else -> byPack ?: modelPassport
+        }
         val ratedCycles = passport?.cycles80 ?: chem.ratedCycles.takeIf { it > 0 }
         val ratedSource = when {
             passport?.cycles80 != null ->
-                "паспорт ${passport.name}" + if (passport.inferred) " — тип визначено за параметрами батареї" else ""
-            ratedCycles != null -> "типове значення для ${chem.short}"
+                tr("паспорт {0}", passport.name) + if (passport.inferred) tr(" — тип визначено за параметрами батареї") else ""
+            ratedCycles != null -> tr("типове значення для {0}", chem.short)
             else -> null
         }
         val resourceUsed = if (cycles != null && ratedCycles != null) cycles * 100.0 / ratedCycles else null
 
         val findings = ArrayList<Finding>()
 
+        if (modelMismatch && modelPassport != null) {
+            findings.add(
+                Finding(
+                    Level.UNKNOWN,
+                    tr("За серійним номером це схоже на {0} ({1}), але напруги груп можливі лише для {2}", modelPassport.name, modelChem?.short, chem.short) +
+                        (avgCell?.let { tr(" (середня {0} В)", fmt3(it / 1000.0)) } ?: "") + tr(". Хімію визначено за напругами."),
+                ),
+            )
+        }
+
         // --- здоров'я: єдина оцінка батареї, ЛИШЕ за SOH (шкала Health)
         val health = Health.of(sohEffective)
         val healthFinding = if (health != null && sohEffective != null) {
             val capTxt = if (design != null && full != null && !capImplausible) {
-                " (вивчена ємність ${fmt1(full / 1000.0)} з ${fmt1(design / 1000.0)} А·год" +
-                    (if (fullWh != null && designWh != null) ", ≈${fmt0(fullWh)} з ${fmt0(designWh)} Вт·год" else "") + ")"
+                tr(" (вивчена ємність {0} з {1} А·год", fmt1(full / 1000.0), fmt1(design / 1000.0)) +
+                    (if (fullWh != null && designWh != null) tr(", ≈{0} з {1} Вт·год", fmt0(fullWh), fmt0(designWh)) else "") + ")"
             } else {
                 ""
             }
-            Finding(health.level, "Здоров'я ${fmt0(sohEffective)}%$capTxt — ${health.verdict.lowercase()}.", health.verdict.lowercase())
+            Finding(health.level, tr("Здоров'я {0}%{1} — {2}.", fmt0(sohEffective), capTxt, health.verdict.lowercase()), health.verdict.lowercase())
         } else {
             null
         }
         healthFinding?.let { findings.add(it) }
         val capVerdict = when {
             health != null -> health.verdict
-            cycles != null -> "SOH не передається — знос не оцінити (є лише лічильник циклів)"
-            else -> "Немає даних про ємність"
+            cycles != null -> tr("SOH не передається — знос не оцінити (є лише лічильник циклів)")
+            else -> tr("Немає даних про ємність")
         }
 
         if (design != null && full != null) {
@@ -472,16 +534,14 @@ object Analyzer {
                 findings.add(
                     Finding(
                         Level.UNKNOWN,
-                        "BMS передає вивчену ємність ${fmt1(full / 1000.0)} А·год при номіналі ${fmt1(design / 1000.0)} А·год — " +
-                            "на ${fmt0((full - design) * 100.0 / design)}% більше, так не буває. Ці дані в оцінці не використано.",
+                        tr("BMS передає вивчену ємність {0} А·год при номіналі {1} А·год — на {2}% більше, так не буває. Ці дані в оцінці не використано.", fmt1(full / 1000.0), fmt1(design / 1000.0), fmt0((full - design) * 100.0 / design)),
                     ),
                 )
             } else if (full > design) {
                 findings.add(
                     Finding(
                         Level.UNKNOWN,
-                        "Вивчена ємність ${fmt1(full / 1000.0)} А·год трохи більша за номінал BMS ${fmt1(design / 1000.0)} А·год — " +
-                            "у нових батарей так буває (елементи мають запас). Здоров'я понад 100% не показується.",
+                        tr("Вивчена ємність {0} А·год трохи більша за номінал BMS {1} А·год — у нових батарей так буває (елементи мають запас). Здоров'я понад 100% не показується.", fmt1(full / 1000.0), fmt1(design / 1000.0)),
                     ),
                 )
             }
@@ -491,34 +551,32 @@ object Analyzer {
         if (passport?.wh != null && designWh != null && design != null && packVnom != null) {
             val pWh = passport.wh
             val diff = (designWh - pWh) * 100.0 / pWh
-            val basis = "${fmt1(design / 1000.0)} А·год × ${fmt1(packVnom)} В"
+            val basis = tr("{0} А·год × {1} В", fmt1(design / 1000.0), fmt1(packVnom))
             if (diff > 3) {
                 val holds = if (fullWh != null && !capImplausible && fullWh > pWh) {
-                    " Зараз батарея вміщує ≈${fmt0(fullWh)} Вт·год — це ≈${fmt0(fullWh * 100.0 / pWh)}% від паспорта."
+                    tr(" Зараз батарея вміщує ≈{0} Вт·год — це ≈{1}% від паспорта.", fmt0(fullWh), fmt0(fullWh * 100.0 / pWh))
                 } else {
                     ""
                 }
                 findings.add(
                     Finding(
                         Level.UNKNOWN,
-                        "Номінал за BMS ≈${fmt0(designWh)} Вт·год ($basis) — на ${fmt0(diff)}% БІЛЬШЕ за паспортні $pWh Вт·год ${passport.name}. " +
-                            "Це не помилка й не знос: у паспорті вказано гарантовану енергію, а BMS рахує повну ємність елементів.$holds " +
-                            "Здоров'я рахується від номіналу BMS, тому ця різниця на оцінку не впливає.",
+                        tr("Номінал за BMS ≈{0} Вт·год ({1}) — на {2}% БІЛЬШЕ за паспортні {3} Вт·год {4}. Це не помилка й не знос: у паспорті вказано гарантовану енергію, а BMS рахує повну ємність елементів.{5} Здоров'я рахується від номіналу BMS, тому ця різниця на оцінку не впливає.", fmt0(designWh), basis, fmt0(diff), pWh, passport.name, holds),
                     ),
                 )
             } else if (diff < -3) {
                 // Помітно менший номінал підозрілий, лише коли ми певні хімії, кількості груп і моделі.
                 val suspicious = diff < -10 && chemSure && seriesSure && !passport.inferred
                 val why = when {
-                    suspicious -> "Так буває, якщо батарею чи BMS міняли на неоригінальну або BMS перепрограмували — варто перевірити."
-                    diff < -10 -> "Можлива причина — хімію чи кількість груп визначено приблизно. На оцінку здоров'я не впливає."
-                    else -> "Різниця невелика й на оцінку здоров'я не впливає."
+                    suspicious -> tr("Так буває, якщо батарею чи BMS міняли на неоригінальну або BMS перепрограмували — варто перевірити.")
+                    diff < -10 -> tr("Можлива причина — хімію чи кількість груп визначено приблизно. На оцінку здоров'я не впливає.")
+                    else -> tr("Різниця невелика й на оцінку здоров'я не впливає.")
                 }
                 findings.add(
                     Finding(
                         if (suspicious) Level.WARN else Level.UNKNOWN,
-                        "Номінал за BMS ≈${fmt0(designWh)} Вт·год ($basis) — на ${fmt0(-diff)}% МЕНШЕ за паспортні $pWh Вт·год ${passport.name}. $why",
-                        if (suspicious) "номінал BMS менший за паспорт" else null,
+                        tr("Номінал за BMS ≈{0} Вт·год ({1}) — на {2}% МЕНШЕ за паспортні {3} Вт·год {4}. {5}", fmt0(designWh), basis, fmt0(-diff), pWh, passport.name, why),
+                        if (suspicious) tr("номінал BMS менший за паспорт") else null,
                     ),
                 )
             }
@@ -528,8 +586,7 @@ object Analyzer {
             findings.add(
                 Finding(
                     Level.UNKNOWN,
-                    "SOH за BMS (${fmt0(sohBms)}%) і за вивченою ємністю (${fmt0(sohCap)}%) сильно розходяться — BMS могла давно " +
-                        "не калібруватись. Для оцінки взято менше значення. Уточнити: повний цикл 100% → 0% → 100% або «Тест ємності».",
+                    tr("SOH за BMS ({0}%) і за вивченою ємністю ({1}%) сильно розходяться — BMS могла давно не калібруватись. Для оцінки взято менше значення. Уточнити: повний цикл 100% → 0% → 100% або «Тест ємності».", fmt0(sohBms), fmt0(sohCap)),
                 ),
             )
         }
@@ -542,33 +599,31 @@ object Analyzer {
         val okMv = if (lfpPlateau) 20 else 30
         val warnMv = if (lfpPlateau) 50 else 70
         if (delta != null) {
-            val socNote = soc?.let { " при заряді ${fmt0(it)}%" } ?: ""
-            val avgNote = avgCell?.let { " (середня ${fmt3(it / 1000.0)} В)" } ?: ""
+            val socNote = soc?.let { tr(" при заряді {0}%", fmt0(it)) } ?: ""
+            val avgNote = avgCell?.let { tr(" (середня {0} В)", fmt3(it / 1000.0)) } ?: ""
             val (lv, txt, short) = when {
-                delta <= okMv && lfpPlateau -> Triple(Level.GOOD, "явного розбалансу не видно", null)
-                delta <= okMv -> Triple(Level.GOOD, "групи збалансовані", null)
+                delta <= okMv && lfpPlateau -> Triple(Level.GOOD, tr("явного розбалансу не видно"), null)
+                delta <= okMv -> Triple(Level.GOOD, tr("групи збалансовані"), null)
                 delta <= warnMv && lfpPlateau -> Triple(
                     Level.WARN,
-                    "помітний розбаланс — на плато LFP навіть така різниця означає, що групи помітно розійшлися за зарядом",
-                    "розбаланс груп",
+                    tr("помітний розбаланс — на плато LFP навіть така різниця означає, що групи помітно розійшлися за зарядом"),
+                    tr("розбаланс груп"),
                 )
-                delta <= warnMv -> Triple(Level.WARN, "помірний дисбаланс", "помірний дисбаланс груп")
-                delta <= 150 -> Triple(Level.BAD, "сильний дисбаланс — ймовірно, є слабка група", "сильний дисбаланс груп")
-                else -> Triple(Level.CRITICAL, "дуже сильний дисбаланс — слабка/пошкоджена група", "дуже сильний дисбаланс груп")
+                delta <= warnMv -> Triple(Level.WARN, tr("помірний дисбаланс"), tr("помірний дисбаланс груп"))
+                delta <= 150 -> Triple(Level.BAD, tr("сильний дисбаланс — ймовірно, є слабка група"), tr("сильний дисбаланс груп"))
+                else -> Triple(Level.CRITICAL, tr("дуже сильний дисбаланс — слабка/пошкоджена група"), tr("дуже сильний дисбаланс груп"))
             }
-            val weakTxt = if (weakest != null && lv.rank >= Level.WARN.rank) " Найнижча напруга — група №$weakest." else ""
+            val weakTxt = if (weakest != null && lv.rank >= Level.WARN.rank) tr(" Найнижча напруга — група №{0}.", weakest) else ""
             val plateauTxt = when {
                 !lfpPlateau -> ""
-                lv.rank >= Level.WARN.rank -> " Наприкінці заряду (групи вище 3.45 В) різниця буде ще більшою — там і перевірте."
+                lv.rank >= Level.WARN.rank -> tr(" Наприкінці заряду (групи вище 3.45 В) різниця буде ще більшою — там і перевірте.")
                 soc != null && soc >= 90 ->
-                    " Після заряду напруга LFP швидко сідає на плато (≈3.3 В), тому навіть на ${fmt0(soc)}% різниця груп майже не видна. " +
-                        "Точно баланс видно наприкінці заряду (групи вище 3.45 В) або біля 0%."
+                    tr(" Після заряду напруга LFP швидко сідає на плато (≈3.3 В), тому навіть на {0}% різниця груп майже не видна. Точно баланс видно наприкінці заряду (групи вище 3.45 В) або біля 0%.", fmt0(soc))
                 else ->
-                    " Це плато LFP: тут навіть розбалансовані групи мають майже однакову напругу. " +
-                        "Точно баланс видно наприкінці заряду (групи вище 3.45 В) або біля 0%."
+                    tr(" Це плато LFP: тут навіть розбалансовані групи мають майже однакову напругу. Точно баланс видно наприкінці заряду (групи вище 3.45 В) або біля 0%.")
             }
-            val chemTxt = if (chem == Chemistry.UNKNOWN) " Хімію не визначено — оцінка приблизна." else ""
-            findings.add(Finding(lv, "Розкид напруг груп $delta мВ$socNote$avgNote: $txt.$weakTxt$plateauTxt$chemTxt", short))
+            val chemTxt = if (chem == Chemistry.UNKNOWN) tr(" Хімію не визначено — оцінка приблизна.") else ""
+            findings.add(Finding(lv, tr("Розкид напруг груп {0} мВ{1}{2}: {3}.{4}{5}{6}", delta, socNote, avgNote, txt, weakTxt, plateauTxt, chemTxt), short))
             balanceLevel = lv
         }
 
@@ -576,21 +631,21 @@ object Analyzer {
         val hotCell = listOfNotNull(maxCellTemp, cellTemps.maxOrNull()).maxOrNull()
         if (hotCell != null) {
             when {
-                hotCell >= 55 -> findings.add(Finding(Level.BAD, "Температура елементів $hotCell °C — перегрів.", "перегрів елементів"))
-                hotCell >= 45 -> findings.add(Finding(Level.WARN, "Температура елементів $hotCell °C — підвищена.", "підвищена температура елементів"))
+                hotCell >= 55 -> findings.add(Finding(Level.BAD, tr("Температура елементів {0} °C — перегрів.", hotCell), tr("перегрів елементів")))
+                hotCell >= 45 -> findings.add(Finding(Level.WARN, tr("Температура елементів {0} °C — підвищена.", hotCell), tr("підвищена температура елементів")))
             }
         }
         if (minCellTemp != null && maxCellTemp != null && maxCellTemp - minCellTemp >= 10) {
             findings.add(
                 Finding(
                     Level.WARN,
-                    "Різниця температур між елементами ${maxCellTemp - minCellTemp} °C — можливий локальний нагрів групи.",
-                    "нерівномірний нагрів елементів",
+                    tr("Різниця температур між елементами {0} °C — можливий локальний нагрів групи.", maxCellTemp - minCellTemp),
+                    tr("нерівномірний нагрів елементів"),
                 ),
             )
         }
         if (maxMos != null && maxMos >= 75) {
-            findings.add(Finding(Level.WARN, "Температура MOSFET BMS $maxMos °C — висока.", "висока температура MOSFET"))
+            findings.add(Finding(Level.WARN, tr("Температура MOSFET BMS {0} °C — висока.", maxMos), tr("висока температура MOSFET")))
         }
         // Холод: нижче −30 °C вважаємо збоєм датчика, а не реальною температурою.
         val coldCell = listOfNotNull(minCellTemp, cellTemps.minOrNull()).minOrNull()?.takeIf { it >= -30 }
@@ -599,15 +654,15 @@ object Analyzer {
                 findings.add(
                     Finding(
                         Level.WARN,
-                        "Заряд при температурі елементів $coldCell °C — на морозі заряд шкодить літієвим елементам; BMS має обмежувати струм.",
-                        "заряд на морозі",
+                        tr("Заряд при температурі елементів {0} °C — на морозі заряд шкодить літієвим елементам; BMS має обмежувати струм.", coldCell),
+                        tr("заряд на морозі"),
                     ),
                 )
             } else {
                 findings.add(
                     Finding(
                         Level.UNKNOWN,
-                        "Температура елементів $coldCell °C — на холоді ємність тимчасово менша, а заряд BMS може не дозволяти до прогріву.",
+                        tr("Температура елементів {0} °C — на холоді ємність тимчасово менша, а заряд BMS може не дозволяти до прогріву.", coldCell),
                     ),
                 )
             }
@@ -619,12 +674,12 @@ object Analyzer {
         // --- силові ключі
         val mos = buildMos(s, soc, amp, ctx)
         if (mos != null && mos.level.rank >= Level.WARN.rank) {
-            findings.add(Finding(mos.level, "Силові ключі BMS: ${mos.value}. ${mos.note ?: ""}".trim(), "BMS вимкнула розряд"))
+            findings.add(Finding(mos.level, tr("Силові ключі BMS: {0}. {1}", mos.value, mos.note ?: "").trim(), tr("BMS вимкнула розряд")))
         }
 
         val water = (s.lng("waterInFlag") ?: 0L) != 0L
         if (water) {
-            findings.add(Finding(Level.CRITICAL, "Спрацював датчик потрапляння вологи в батарею!", "волога в батареї"))
+            findings.add(Finding(Level.CRITICAL, tr("Спрацював датчик потрапляння вологи в батарею!"), tr("волога в батареї")))
         }
 
         // --- ресурс за циклами: лише довідка; знос оцінюється за SOH. Тривога — тільки коли SOH невідомий.
@@ -632,24 +687,23 @@ object Analyzer {
             val used = resourceUsed ?: 0.0
             val (lv, tail, short) = when {
                 used < 80 -> Triple(Level.GOOD, "", null)
-                used < 100 -> Triple(Level.UNKNOWN, " Паспортний ресурс наближається.", null)
+                used < 100 -> Triple(Level.UNKNOWN, tr(" Паспортний ресурс наближається."), null)
                 sohEffective != null && sohEffective >= 80 -> Triple(
                     Level.UNKNOWN,
-                    " Паспортний ресурс пройдено, але ємність ще тримається — орієнтуйтесь на здоров'я (SOH).",
+                    tr(" Паспортний ресурс пройдено, але ємність ще тримається — орієнтуйтесь на здоров'я (SOH)."),
                     null,
                 )
-                sohEffective != null -> Triple(Level.UNKNOWN, " Паспортний ресурс пройдено — це видно і за здоров'ям (SOH).", null)
+                sohEffective != null -> Triple(Level.UNKNOWN, tr(" Паспортний ресурс пройдено — це видно і за здоров'ям (SOH)."), null)
                 else -> Triple(
                     Level.WARN,
-                    " Паспортний ресурс пройдено, а SOH BMS не передає — зробіть «Тест ємності».",
-                    "ресурс за циклами пройдено",
+                    tr(" Паспортний ресурс пройдено, а SOH BMS не передає — зробіть «Тест ємності»."),
+                    tr("ресурс за циклами пройдено"),
                 )
             }
             findings.add(
                 Finding(
                     lv,
-                    "$cycles циклів із ~$ratedCycles до 80% ємності ($ratedSource) — використано ≈${fmt0(used)}% ресурсу. " +
-                        "Це оцінка лише за лічильником циклів BMS" + (if (!chemSure) "; хімію визначено приблизно" else "") + "." + tail,
+                    tr("{0} циклів із ~{1} до 80% ємності ({2}) — використано ≈{3}% ресурсу. Це оцінка лише за лічильником циклів BMS", cycles, ratedCycles, ratedSource, fmt0(used)) + (if (!chemSure) tr("; хімію визначено приблизно") else "") + "." + tail,
                     short,
                 ),
             )
@@ -658,9 +712,8 @@ object Analyzer {
             findings.add(
                 Finding(
                     Level.WARN,
-                    "За накопиченою енергією розряду (лічильник BMS) це ≈${fmt0(eqCycles)} повних циклів, а лічильник циклів показує $cycles. " +
-                        "Можливі причини: скидання лічильника, заміна BMS або інший метод обліку.",
-                    "лічильник циклів не збігається з енергією",
+                    tr("За накопиченою енергією розряду (лічильник BMS) це ≈{0} повних циклів, а лічильник циклів показує {1}. Можливі причини: скидання лічильника, заміна BMS або інший метод обліку.", fmt0(eqCycles), cycles),
+                    tr("лічильник циклів не збігається з енергією"),
                 ),
             )
         }
@@ -682,7 +735,7 @@ object Analyzer {
         val baseVerdict = when {
             driver == null -> capVerdict
             capLevel == Level.UNKNOWN -> driver.short!!.replaceFirstChar { it.uppercase() }
-            else -> "$capVerdict, але ${driver.short}"
+            else -> tr("{0}, але {1}", capVerdict, driver.short)
         }
         // Пояснення вивченого коду (напр. 23) показуємо завжди — як нейтральну примітку, без «Увага».
         val codeInfo = findings.firstOrNull { it.codeInfo && it.short != null }
@@ -711,7 +764,7 @@ object Analyzer {
             passport = passport, ratedCycles = ratedCycles, ratedCyclesSource = ratedSource,
             equivalentCycles = eqCycles, resourceUsedPct = resourceUsed,
             mos = mos, codes = codes, notProvided = notProvided,
-            waterIn = water, firmware = fw, hwVersion = hw,
+            waterIn = water, firmware = fw, hwVersion = hw, modelMismatch = modelMismatch,
             level = level, health = health, capacityVerdict = capVerdict, verdict = verdict, findings = findings,
             issues = issues, balanceLevel = balanceLevel, cellOkMv = okMv, cellWarnMv = warnMv,
         )
@@ -730,13 +783,13 @@ object Analyzer {
         if (faults.isNotEmpty()) {
             out.add(
                 Indicator(
-                    "Відмови BMS",
+                    tr("Відмови BMS"),
                     faults.joinToString(" · ") { "${it.first} ${it.second}" },
                     if (hasFault) Level.BAD else Level.GOOD,
                     if (hasFault) {
-                        "BMS фіксує відмову: " + faults.filter { it.second != 0L }.joinToString("; ") { "${it.first} — біти ${bitsText(it.second)}" }
+                        tr("BMS фіксує відмову: ") + faults.filter { it.second != 0L }.joinToString("; ") { tr("{0} — біти {1}", it.first, bitsText(it.second)) }
                     } else {
-                        "постійних відмов немає"
+                        tr("постійних відмов немає")
                     },
                 ),
             )
@@ -749,16 +802,16 @@ object Analyzer {
             val alarmBits = BQ_ALARM_BITS.filter { (bq shr it.first) and 1L == 1L }
             bqAlarm = alarmBits.isNotEmpty()
             val note = if (bqAlarm) {
-                "аварійні біти: " + alarmBits.joinToString("; ") { it.second }
+                tr("аварійні біти: ") + alarmBits.joinToString("; ") { it.second }
             } else {
-                "аварійних бітів (0–5) немає" + if ((bq shr 7) and 1L == 1L) "; біт 7 CC_READY — службовий" else ""
+                tr("аварійних бітів (0–5) немає") + if ((bq shr 7) and 1L == 1L) tr("; біт 7 CC_READY — службовий") else ""
             }
             out.add(
                 Indicator(
-                    "Стан AFE (bqSysStatReg)",
+                    tr("Стан AFE (bqSysStatReg)"),
                     "$bq (0x${bq.toString(16).uppercase()})",
                     if (bqAlarm) Level.BAD else Level.GOOD,
-                    "$note. Трактування для чипа BQ769x0 — уточніть, який чип стоїть у цій BMS.",
+                    tr("{0}. Трактування для чипа BQ769x0 — уточніть, який чип стоїть у цій BMS.", note),
                 ),
             )
         }
@@ -767,15 +820,15 @@ object Analyzer {
         var protect = false
         val alarms = ArrayList<String>()
         for ((name, title, lv) in listOf(
-            Triple("bmsProtectState1", "Захист BMS 1", Level.BAD),
-            Triple("bmsProtectState2", "Захист BMS 2", Level.BAD),
-            Triple("bmsAlarmState1", "Тривога BMS 1", Level.WARN),
-            Triple("bmsAlarmState2", "Тривога BMS 2", Level.WARN),
+            Triple("bmsProtectState1", tr("Захист BMS 1"), Level.BAD),
+            Triple("bmsProtectState2", tr("Захист BMS 2"), Level.BAD),
+            Triple("bmsAlarmState1", tr("Тривога BMS 1"), Level.WARN),
+            Triple("bmsAlarmState2", tr("Тривога BMS 2"), Level.WARN),
         )) {
             val v = s.lng(name) ?: continue
             if (v == 0L) continue
             if (lv == Level.BAD) protect = true else alarms.add(name)
-            out.add(Indicator(title, "$v (біти ${bitsText(v)})", lv, "активний стан BMS ($name)"))
+            out.add(Indicator(title, tr("{0} (біти {1})", v, bitsText(v)), lv, tr("активний стан BMS ({0})", name)))
         }
 
         // Коди помилок
@@ -788,13 +841,13 @@ object Analyzer {
         if (errCode != null) {
             out.add(
                 if (errCode == 0L) {
-                    Indicator("Код помилки BMS (errCode)", "0", Level.GOOD, "немає")
+                    Indicator(tr("Код помилки BMS (errCode)"), "0", Level.GOOD, tr("немає"))
                 } else {
                     Indicator(
-                        "Код помилки BMS (errCode)",
+                        tr("Код помилки BMS (errCode)"),
                         "$errCode",
                         knownDoc?.level ?: Level.WARN,
-                        userNote?.let { "Ваша примітка: $it" } ?: knownDoc?.short ?: "код не задокументований EcoFlow",
+                        userNote?.let { tr("Ваша примітка: {0}", it) } ?: knownDoc?.short ?: tr("код не задокументований EcoFlow"),
                         "bms:$errCode",
                     )
                 },
@@ -803,27 +856,27 @@ object Analyzer {
         if (allErr != null) {
             out.add(
                 if (allErr == 0L) {
-                    Indicator("Маска помилок (allErrCode)", "0", Level.GOOD, "немає")
+                    Indicator(tr("Маска помилок (allErrCode)"), "0", Level.GOOD, tr("немає"))
                 } else {
                     val same = errCode != null && allBits == listOf(errCode.toInt())
                     Indicator(
-                        "Маска помилок (allErrCode)",
+                        tr("Маска помилок (allErrCode)"),
                         "$allErr (0x${allErr.toString(16).uppercase()})",
                         if (same) (knownDoc?.level ?: Level.WARN) else Level.WARN,
-                        "встановлені біти: ${allBits.joinToString(", ")}" + if (same) " — той самий код, що й errCode" else "",
+                        tr("встановлені біти: {0}", allBits.joinToString(", ")) + if (same) tr(" — той самий код, що й errCode") else "",
                     )
                 },
             )
         }
 
         val unknownCode = (errCode ?: 0L) != 0L || (allErr ?: 0L) != 0L
-        val noteTxt = userNote?.let { " Ваша примітка до коду: $it." } ?: ""
+        val noteTxt = userNote?.let { tr(" Ваша примітка до коду: {0}.", it) } ?: ""
         if (hasFault || bqAlarm || protect) {
             findings.add(
                 Finding(
                     Level.BAD,
-                    "BMS фіксує відмову або аварійний стан — див. блок «Коди BMS». Батарею потрібно перевірити.",
-                    "BMS фіксує відмову",
+                    tr("BMS фіксує відмову або аварійний стан — див. блок «Коди BMS». Батарею потрібно перевірити."),
+                    tr("BMS фіксує відмову"),
                 ),
             )
         } else if (knownDoc != null) {
@@ -831,18 +884,17 @@ object Analyzer {
             findings.add(Finding(knownDoc.level, knownDoc.detail + noteTxt, knownDoc.short, codeInfo = true))
         } else if (unknownCode) {
             val code = if ((errCode ?: 0L) != 0L) "$errCode" else allBits.joinToString(", ")
-            val bitsTxt = if (allErr != null && allErr != 0L) " (allErrCode: біт ${allBits.joinToString(", ")})" else ""
+            val bitsTxt = if (allErr != null && allErr != 0L) tr(" (allErrCode: біт {0})", allBits.joinToString(", ")) else ""
             val context = ArrayList<String>()
-            if (faults.isNotEmpty()) context.add("постійних відмов BMS немає")
-            if (bq != null) context.add("аварійних бітів AFE немає")
-            if (ctx.iconBmsErr == 0L) context.add("станція сама іконку помилки BMS не показує")
-            val ctxTxt = if (context.isNotEmpty()) " Інших ознак проблем немає: ${context.joinToString(", ")}." else ""
+            if (faults.isNotEmpty()) context.add(tr("постійних відмов BMS немає"))
+            if (bq != null) context.add(tr("аварійних бітів AFE немає"))
+            if (ctx.iconBmsErr == 0L) context.add(tr("станція сама іконку помилки BMS не показує"))
+            val ctxTxt = if (context.isNotEmpty()) tr(" Інших ознак проблем немає: {0}.", context.joinToString(", ")) else ""
             findings.add(
                 Finding(
                     Level.WARN,
-                    "BMS передає код $code$bitsTxt. EcoFlow не публікує значення кодів BMS.$ctxTxt$noteTxt " +
-                        "Якщо станція на гарантії — уточніть код у підтримці EcoFlow за серійним номером.",
-                    "BMS передає незадокументований код $code",
+                    tr("BMS передає код {0}{1}. EcoFlow не публікує значення кодів BMS.{2}{3} Якщо станція на гарантії — уточніть код у підтримці EcoFlow за серійним номером.", code, bitsTxt, ctxTxt, noteTxt),
+                    tr("BMS передає незадокументований код {0}", code),
                 ),
             )
         }
@@ -851,8 +903,8 @@ object Analyzer {
             findings.add(
                 Finding(
                     Level.WARN,
-                    "BMS повідомляє активну тривогу (${alarms.joinToString(", ")}) — див. вкладку «Коди». Значення бітів EcoFlow не публікує.",
-                    "активна тривога BMS",
+                    tr("BMS повідомляє активну тривогу ({0}) — див. вкладку «Коди». Значення бітів EcoFlow не публікує.", alarms.joinToString(", ")),
+                    tr("активна тривога BMS"),
                 ),
             )
         }
@@ -870,35 +922,35 @@ object Analyzer {
         val amp = ampMa ?: 0L
         if ((!chgOn && amp > 300) || (!dsgOn && amp < -300)) {
             return Indicator(
-                "Силові ключі BMS",
+                tr("Силові ключі BMS"),
                 "mosState = $v",
                 Level.UNKNOWN,
-                "біти суперечать струму батареї (${fmt1(amp / 1000.0)} А) — для цієї BMS вони означають інше, не зважайте",
+                tr("біти суперечать струму батареї ({0} А) — для цієї BMS вони означають інше, не зважайте", fmt1(amp / 1000.0)),
             )
         }
         if (!chgOn) {
             val max = ctx.maxChargeSoc
             notes.add(
                 if (soc != null && max != null && soc >= max - 2) {
-                    "заряд зупинено лімітом ${fmt0(max)}% — це норма"
+                    tr("заряд зупинено лімітом {0}% — це норма", fmt0(max))
                 } else {
-                    "ключ заряду вимкнено (буває нормою: немає джерела заряду, ліміт, температура)"
+                    tr("ключ заряду вимкнено (буває нормою: немає джерела заряду, ліміт, температура)")
                 },
             )
         }
         if (!dsgOn) {
             val min = ctx.minDsgSoc
             if (soc != null && min != null && soc <= min + 2) {
-                notes.add("розряд зупинено нижнім лімітом ${fmt0(min)}%")
+                notes.add(tr("розряд зупинено нижнім лімітом {0}%", fmt0(min)))
             } else {
-                notes.add("ключ розряду вимкнено BMS")
+                notes.add(tr("ключ розряду вимкнено BMS"))
                 lv = Level.WARN
             }
         }
-        notes.add("трактування бітів імовірне: біт 0 — заряд, біт 1 — розряд")
+        notes.add(tr("трактування бітів імовірне: біт 0 — заряд, біт 1 — розряд"))
         return Indicator(
-            "Силові ключі BMS",
-            "заряд ${if (chgOn) "увімк." else "вимк."}, розряд ${if (dsgOn) "увімк." else "вимк."} (mosState = $v)",
+            tr("Силові ключі BMS"),
+            tr("заряд {0}, розряд {1} (mosState = {2})", if (chgOn) tr("увімк.") else tr("вимк."), if (dsgOn) tr("увімк.") else tr("вимк."), v),
             lv,
             notes.joinToString("; "),
         )
@@ -907,17 +959,17 @@ object Analyzer {
     /** Поля, які прошивка BMS не заповнює (заглушки) — показуються як «не передається». */
     private fun buildNotProvided(s: Src): List<String> {
         val out = ArrayList<String>()
-        (s.raw("packSn") as? String)?.let { if (it.isNotEmpty() && it.all { c -> c == '0' }) out.add("серійний номер пакета (packSn = ${"0".repeat(it.length)})") }
+        (s.raw("packSn") as? String)?.let { if (it.isNotEmpty() && it.all { c -> c == '0' }) out.add(tr("серійний номер пакета (packSn = {0})", "0".repeat(it.length))) }
         listOf("hwEdition", "hwVersion", "hwVer").forEach { n ->
             val h = hwRaw(s.raw(n))
-            if (h != null && h.trim().equals("V0.0.0", ignoreCase = true)) out.add("версія заліза ($n = V0.0.0)")
+            if (h != null && h.trim().equals("V0.0.0", ignoreCase = true)) out.add(tr("версія заліза ({0} = V0.0.0)", n))
         }
         val capStubs = listOf("totalChgCap", "totalDsgCap", "chgCap", "dsgCap").filter { s.rawLong(it) == 4294967295L }
-        if (capStubs.isNotEmpty()) out.add("накопичена ємність (${capStubs.joinToString(", ")} = 0xFFFFFFFF)")
-        if (s.rawLong("ecloudOcv") == 65535L) out.add("OCV для хмари (ecloudOcv = 0xFFFF)")
-        if (s.raw("soh") != null && s.rawLong("soh") == 0L) out.add("SOH від BMS (soh = 0)")
+        if (capStubs.isNotEmpty()) out.add(tr("накопичена ємність ({0} = 0xFFFFFFFF)", capStubs.joinToString(", ")))
+        if (s.rawLong("ecloudOcv") == 65535L) out.add(tr("OCV для хмари (ecloudOcv = 0xFFFF)"))
+        if (s.raw("soh") != null && s.rawLong("soh") == 0L) out.add(tr("SOH від BMS (soh = 0)"))
         val sohStubs = listOf("cycSoh", "cycleSoh", "realSoh", "caleSoh").filter { s.raw(it) != null && (s.raw(it) as? Number)?.toDouble() == 0.0 }
-        if (sohStubs.isNotEmpty()) out.add("додаткові оцінки SOH (${sohStubs.joinToString(", ")} = 0)")
+        if (sohStubs.isNotEmpty()) out.add(tr("додаткові оцінки SOH ({0} = 0)", sohStubs.joinToString(", ")))
         return out
     }
 
@@ -939,8 +991,8 @@ object Analyzer {
         num("ems.emsIsNormalFlag", "bms_emsStatus.emsIsNormalFlag")?.let { v ->
             out.add(
                 Indicator(
-                    "EMS у нормальному режимі",
-                    if (v == 1.0) "так" else "ні",
+                    tr("EMS у нормальному режимі"),
+                    if (v == 1.0) tr("так") else tr("ні"),
                     if (v == 1.0) Level.GOOD else Level.WARN,
                     "emsIsNormalFlag = ${fmt0(v)}",
                 ),
@@ -955,16 +1007,16 @@ object Analyzer {
         }
         val extraCount = packs.count { !it.isMain }
         for ((i, v) in online.withIndex()) {
-            val name = if (i == 0) "основної батареї" else "додаткової батареї $i"
+            val name = if (i == 0) tr("основної батареї") else tr("додаткової батареї {0}", i)
             val expected = i == 0 || i <= extraCount
             if (v == 0.0 && !expected) continue
             val (txt, lv) = when (v.toInt()) {
-                3 -> "на зв'язку (HW + SW)" to Level.GOOD
-                1, 2 -> "частковий зв'язок (= ${fmt0(v)})" to Level.WARN
-                0 -> "немає зв'язку" to Level.BAD
+                3 -> tr("на зв'язку (HW + SW)") to Level.GOOD
+                1, 2 -> tr("частковий зв'язок (= {0})", fmt0(v)) to Level.WARN
+                0 -> tr("немає зв'язку") to Level.BAD
                 else -> "= ${fmt0(v)}" to Level.UNKNOWN
             }
-            out.add(Indicator("Зв'язок з BMS $name", txt, lv))
+            out.add(Indicator(tr("Зв'язок з BMS {0}", name), txt, lv))
         }
 
         val chg = num("ems.chgCmd", "bms_emsStatus.chgCmd")
@@ -974,21 +1026,21 @@ object Analyzer {
             val notes = ArrayList<String>()
             if (chg == 0.0) {
                 val max = ctx.maxChargeSoc
-                if (soc != null && max != null && soc >= max - 2) notes.add("заряд заборонено, бо досягнуто ліміту ${fmt0(max)}%") else {
-                    notes.add("EMS заборонила заряд")
+                if (soc != null && max != null && soc >= max - 2) notes.add(tr("заряд заборонено, бо досягнуто ліміту {0}%", fmt0(max))) else {
+                    notes.add(tr("EMS заборонила заряд"))
                     lv = Level.WARN
                 }
             }
             if (dsg == 0.0) {
                 val min = ctx.minDsgSoc
-                if (soc != null && min != null && soc <= min + 2) notes.add("розряд заборонено нижнім лімітом ${fmt0(min)}%") else {
-                    notes.add("EMS заборонила розряд")
+                if (soc != null && min != null && soc <= min + 2) notes.add(tr("розряд заборонено нижнім лімітом {0}%", fmt0(min))) else {
+                    notes.add(tr("EMS заборонила розряд"))
                     lv = Level.WARN
                 }
             }
             out.add(
                 Indicator(
-                    "Заряд / розряд дозволені EMS",
+                    tr("Заряд / розряд дозволені EMS"),
                     "${allowed(chg)} / ${allowed(dsg)}",
                     lv,
                     notes.joinToString("; ").ifEmpty { "chgCmd = ${chg?.let { fmt0(it) } ?: "—"}, dsgCmd = ${dsg?.let { fmt0(it) } ?: "—"}" },
@@ -997,34 +1049,34 @@ object Analyzer {
         }
 
         num("ems.bmsWarningState", "bms_emsStatus.bmsWarState")?.let { v ->
-            out.add(Indicator("Попередження EMS", if (v == 0.0) "немає" else fmt0(v), if (v == 0.0) Level.GOOD else Level.WARN))
+            out.add(Indicator(tr("Попередження EMS"), if (v == 0.0) tr("немає") else fmt0(v), if (v == 0.0) Level.GOOD else Level.WARN))
         }
         ctx.iconBmsErr?.let { v ->
             out.add(
                 Indicator(
-                    "Іконка помилки BMS на екрані станції",
-                    if (v == 0L) "не показується" else "показується",
+                    tr("Іконка помилки BMS на екрані станції"),
+                    if (v == 0L) tr("не показується") else tr("показується"),
                     if (v == 0L) Level.GOOD else Level.WARN,
                     "pd.iconBmsErrState = $v",
                 ),
             )
         }
         for ((key, title, prefix) in listOf(
-            Triple("inv.errCode", "Помилка інвертора", "inv"),
-            Triple("pd.errCode", "Помилка плати PD", "pd"),
-            Triple("mppt.faultCode", "Помилка MPPT", "mppt"),
+            Triple("inv.errCode", tr("Помилка інвертора"), "inv"),
+            Triple("pd.errCode", tr("Помилка плати PD"), "pd"),
+            Triple("mppt.faultCode", tr("Помилка MPPT"), "mppt"),
         )) {
             val v = numOf(p[key])?.toLong() ?: continue
             if (v == 0L) {
-                out.add(Indicator(title, "немає", Level.GOOD, "$key = 0"))
+                out.add(Indicator(title, tr("немає"), Level.GOOD, "$key = 0"))
             } else {
                 val note = ctx.codeNotes["$prefix:$v"]
                 out.add(
                     Indicator(
                         title,
-                        "код $v (0x${v.toString(16).uppercase()})",
+                        tr("код {0} (0x{1})", v, v.toString(16).uppercase()),
                         Level.WARN,
-                        note?.let { "Ваша примітка: $it" } ?: "код не задокументований EcoFlow",
+                        note?.let { tr("Ваша примітка: {0}", it) } ?: tr("код не задокументований EcoFlow"),
                         "$prefix:$v",
                     ),
                 )
@@ -1035,8 +1087,8 @@ object Analyzer {
 
     private fun allowed(v: Double?): String = when (v) {
         null -> "—"
-        1.0 -> "дозволено"
-        0.0 -> "заборонено"
+        1.0 -> tr("дозволено")
+        0.0 -> tr("заборонено")
         else -> fmt0(v)
     }
 
@@ -1063,48 +1115,47 @@ object Analyzer {
             val bypass = inW != null && outW != null && inW >= 20 && outW >= 10 &&
                 abs(inW - outW) <= maxOf(30.0, inW * 0.2) && abs(ampMa ?: 0L) < 1000
             val (title, note) = when {
-                bypass -> "Байпас (UPS)" to
-                    "Навантаження ${fmt0(outW!!)} Вт живиться з мережі напряму (вхід ${fmt0(inW!!)} Вт ≈ вихід), " +
-                    "струм батареї ${fmt1(ampA)} А — батарея не заряджається" +
-                    (if (nearMax) ", бо досягнуто ліміту заряду ${fmt0(max!!)}%." else ".")
-                charging -> "Заряд" to "Струм батареї +${fmt1(ampA)} А" +
-                    (totalIn?.let { ", вхід усього ${fmt0(it)} Вт" } ?: "") + (inW?.let { " (AC ${fmt0(it)} Вт)" } ?: "")
-                (ampMa ?: 0L) < -300 -> "Розряд" to "Струм батареї ${fmt1(ampA)} А" + (outW?.let { ", вихід AC ${fmt0(it)} Вт" } ?: "")
-                else -> "Очікування" to "Струм батареї ${fmt1(ampA)} А" +
-                    (if (nearMax) ". Заряд не йде, бо досягнуто ліміту ${fmt0(max!!)}% — це не несправність." else "")
+                bypass -> tr("Байпас (UPS)") to
+                    tr("Навантаження {0} Вт живиться з мережі напряму (вхід {1} Вт ≈ вихід), струм батареї {2} А — батарея не заряджається", fmt0(outW!!), fmt0(inW!!), fmt1(ampA)) +
+                    (if (nearMax) tr(", бо досягнуто ліміту заряду {0}%.", fmt0(max!!)) else ".")
+                charging -> tr("Заряд") to tr("Струм батареї +{0} А", fmt1(ampA)) +
+                    (totalIn?.let { tr(", вхід усього {0} Вт", fmt0(it)) } ?: "") + (inW?.let { tr(" (AC {0} Вт)", fmt0(it)) } ?: "")
+                (ampMa ?: 0L) < -300 -> tr("Розряд") to tr("Струм батареї {0} А", fmt1(ampA)) + (outW?.let { tr(", вихід AC {0} Вт", fmt0(it)) } ?: "")
+                else -> tr("Очікування") to tr("Струм батареї {0} А", fmt1(ampA)) +
+                    (if (nearMax) tr(". Заряд не йде, бо досягнуто ліміту {0}% — це не несправність.", fmt0(max!!)) else "")
             }
-            out.add(Indicator("Режим роботи", title, Level.UNKNOWN, note))
+            out.add(Indicator(tr("Режим роботи"), title, Level.UNKNOWN, note))
         }
-        if (soc != null) out.add(Indicator("Заряд за даними станції", "${fmt0(soc)}%", Level.UNKNOWN))
-        max?.let { out.add(Indicator("Ліміт заряду", "${fmt0(it)}%", Level.UNKNOWN, if (nearMax) "заряд досягнув ліміту" else null)) }
-        min?.let { out.add(Indicator("Нижній ліміт розряду", "${fmt0(it)}%", Level.UNKNOWN)) }
-        num("pd.bpPowerSoc", "pd.bppowerSoc")?.let { out.add(Indicator("Резерв живлення", "${fmt0(it)}%", Level.UNKNOWN, "pd.bpPowerSoc")) }
-        num("ems.openUpsFlag", "bms_emsStatus.openUpsFlag")?.let { out.add(Indicator("Прапорець UPS", fmt0(it), Level.UNKNOWN, "openUpsFlag")) }
+        if (soc != null) out.add(Indicator(tr("Заряд за даними станції"), "${fmt0(soc)}%", Level.UNKNOWN))
+        max?.let { out.add(Indicator(tr("Ліміт заряду"), "${fmt0(it)}%", Level.UNKNOWN, if (nearMax) tr("заряд досягнув ліміту") else null)) }
+        min?.let { out.add(Indicator(tr("Нижній ліміт розряду"), "${fmt0(it)}%", Level.UNKNOWN)) }
+        num("pd.bpPowerSoc", "pd.bppowerSoc")?.let { out.add(Indicator(tr("Резерв живлення"), "${fmt0(it)}%", Level.UNKNOWN, "pd.bpPowerSoc")) }
+        num("ems.openUpsFlag", "bms_emsStatus.openUpsFlag")?.let { out.add(Indicator(tr("Прапорець UPS"), fmt0(it), Level.UNKNOWN, "openUpsFlag")) }
 
         val slow = num("inv.cfgSlowChgWatts", "inv.SlowChgWatts", "mppt.cfgChgWatts")
         val fast = num("inv.cfgFastChgWatts", "inv.FastChgWatts")
         if (slow != null || fast != null) {
             val v = buildString {
-                slow?.let { append("${fmt0(it)} Вт") }
-                fast?.takeIf { it > 0 }?.let { append(if (isEmpty()) "" else " · ").append("швидкий ${fmt0(it)} Вт") }
+                slow?.let { append(tr("{0} Вт", fmt0(it))) }
+                fast?.takeIf { it > 0 }?.let { append(if (isEmpty()) "" else " · ").append(tr("швидкий {0} Вт", fmt0(it))) }
             }.ifEmpty { "—" }
-            out.add(Indicator("Потужність AC-заряду", v, Level.UNKNOWN, "налаштування станції"))
+            out.add(Indicator(tr("Потужність AC-заряду"), v, Level.UNKNOWN, tr("налаштування станції")))
         }
-        num("inv.cfgAcXboost", "mppt.cfgAcXboost")?.let { out.add(Indicator("X-Boost", if (it == 1.0) "увімк." else "вимк.", Level.UNKNOWN)) }
-        num("inv.chgPauseFlag")?.let { if (it != 0.0) out.add(Indicator("Пауза AC-заряду", "так", Level.UNKNOWN, "chgPauseFlag = ${fmt0(it)}")) }
-        num("inv.chargerType", "pd.chargerType")?.let { out.add(Indicator("Тип зарядного (chargerType)", fmt0(it), Level.UNKNOWN)) }
+        num("inv.cfgAcXboost", "mppt.cfgAcXboost")?.let { out.add(Indicator("X-Boost", if (it == 1.0) tr("увімк.") else tr("вимк."), Level.UNKNOWN)) }
+        num("inv.chgPauseFlag")?.let { if (it != 0.0) out.add(Indicator(tr("Пауза AC-заряду"), tr("так"), Level.UNKNOWN, "chgPauseFlag = ${fmt0(it)}")) }
+        num("inv.chargerType", "pd.chargerType")?.let { out.add(Indicator(tr("Тип зарядного (chargerType)"), fmt0(it), Level.UNKNOWN)) }
         return out
     }
 
     // ---------------------------------------------------------------- станція: лічильники
 
-    private val USAGE_KEYS: List<Pair<List<String>, String>> = listOf(
-        listOf("pd.invUsedTime") to "Інвертор (AC-вихід)",
-        listOf("pd.mpptUsedTime") to "Заряд від сонця (MPPT)",
-        listOf("pd.dcInUsedTime") to "DC-вхід",
-        listOf("pd.carUsedTime") to "Автомобільний вихід 12 В",
+    private val USAGE_KEYS: List<Pair<List<String>, String>> get() = listOf(
+        listOf("pd.invUsedTime") to tr("Інвертор (AC-вихід)"),
+        listOf("pd.mpptUsedTime") to tr("Заряд від сонця (MPPT)"),
+        listOf("pd.dcInUsedTime") to tr("DC-вхід"),
+        listOf("pd.carUsedTime") to tr("Автомобільний вихід 12 В"),
         listOf("pd.usbUsedTime") to "USB-A",
-        listOf("pd.usbqcUsedTime") to "USB-A швидкий",
+        listOf("pd.usbqcUsedTime") to tr("USB-A швидкий"),
         listOf("pd.typecUsedTime", "pd.typccUsedTime") to "USB-C",
     )
 
@@ -1118,13 +1169,16 @@ object Analyzer {
         return out
     }
 
-    private val ENERGY_KEYS: List<Pair<List<String>, String>> = listOf(
-        listOf("pd.chgPowerAC", "pd.chgPowerAc") to "Через AC-вхід (включно з транзитом у байпасі)",
-        listOf("pd.chgSunPower") to "Від сонця",
-        listOf("pd.chgPowerDC", "pd.chgPowerDc") to "Через DC-вхід",
-        listOf("pd.dsgPowerAC", "pd.dsgPowerAc") to "Через AC-вихід (включно з транзитом)",
-        listOf("pd.dsgPowerDC", "pd.dsgPowerDc") to "Через DC/USB-виходи",
+    private val ENERGY_KEYS: List<Pair<List<String>, String>> get() = listOf(
+        listOf("pd.chgPowerAC", "pd.chgPowerAc") to tr("Через AC-вхід (включно з транзитом у байпасі)"),
+        listOf("pd.chgSunPower") to tr("Від сонця"),
+        listOf("pd.chgPowerDC", "pd.chgPowerDc") to tr("Через DC-вхід"),
+        listOf("pd.dsgPowerAC", "pd.dsgPowerAc") to tr("Через AC-вихід (включно з транзитом)"),
+        listOf("pd.dsgPowerDC", "pd.dsgPowerDc") to tr("Через DC/USB-виходи"),
     )
+
+    /** Рядки енергії, яку станція видала споживачам: AC-вихід і DC/USB-виходи. */
+    fun energyOutTitles(): List<String> = ENERGY_KEYS.drop(3).map { it.second }
 
     private fun buildEnergy(p: Map<String, Any?>, packs: List<PackReport>): List<Pair<String, String>> {
         val out = ArrayList<Pair<String, String>>()
@@ -1136,9 +1190,9 @@ object Analyzer {
         for (pk in packs) {
             if (pk.accuChgEnergyWh != null || pk.accuDsgEnergyWh != null) {
                 val parts = ArrayList<String>()
-                pk.accuChgEnergyWh?.let { parts.add("заряд ${energyString(it.toDouble())}") }
-                pk.accuDsgEnergyWh?.let { parts.add("розряд ${energyString(it.toDouble())}") }
-                out.add("${pk.title} (лічильник BMS)" to parts.joinToString(", "))
+                pk.accuChgEnergyWh?.let { parts.add(tr("заряд {0}", energyString(it.toDouble()))) }
+                pk.accuDsgEnergyWh?.let { parts.add(tr("розряд {0}", energyString(it.toDouble()))) }
+                out.add(tr("{0} (лічильник BMS)", pk.title) to parts.joinToString(", "))
             }
         }
         return out
@@ -1146,26 +1200,26 @@ object Analyzer {
 
     private fun buildFirmware(p: Map<String, Any?>, packs: List<PackReport>): List<Pair<String, String>> {
         val out = ArrayList<Pair<String, String>>()
-        numOf(p["pd.sysVer"])?.toLong()?.takeIf { it > 0 }?.let { out.add("Плата PD" to versionString(it)) }
-        numOf(p["inv.sysVer"])?.toLong()?.takeIf { it > 0 }?.let { out.add("Інвертор" to versionString(it)) }
+        numOf(p["pd.sysVer"])?.toLong()?.takeIf { it > 0 }?.let { out.add(tr("Плата PD") to versionString(it)) }
+        numOf(p["inv.sysVer"])?.toLong()?.takeIf { it > 0 }?.let { out.add(tr("Інвертор") to versionString(it)) }
         numOf(p["mppt.swVer"])?.toLong()?.takeIf { it > 0 }?.let { out.add("MPPT" to versionString(it)) }
-        numOf(p["pd.wifiVer"])?.toLong()?.takeIf { it > 0 }?.let { out.add("Wi-Fi модуль" to versionString(it)) }
+        numOf(p["pd.wifiVer"])?.toLong()?.takeIf { it > 0 }?.let { out.add(tr("Wi-Fi модуль") to versionString(it)) }
         for (pk in packs) {
             pk.firmware?.let { out.add("BMS: ${pk.title}" to it) }
-            pk.hwVersion?.let { out.add("Залізо BMS: ${pk.title}" to it) }
+            pk.hwVersion?.let { out.add(tr("Залізо BMS: {0}", pk.title) to it) }
         }
         return out
     }
 
     private fun buildOther(p: Map<String, Any?>): List<Pair<String, String>> {
         val out = ArrayList<Pair<String, String>>()
-        numOf(p["pd.relaySwitchCnt"])?.let { if (it > 0) out.add("Перемикань реле" to fmt0(it)) }
+        numOf(p["pd.relaySwitchCnt"])?.let { if (it > 0) out.add(tr("Перемикань реле") to fmt0(it)) }
         (p["bms_kitInfo.watts"] as? List<*>)?.let { kits ->
             for (kit in kits) {
                 val m = kit as? Map<*, *> ?: continue
                 val ksn = m["sn"]?.toString() ?: continue
                 val type = m["type"]?.toString() ?: "?"
-                out.add("Підключено до порту батареї" to "$ksn (тип $type)")
+                out.add(tr("Підключено до порту батареї") to tr("{0} (тип {1})", ksn, type))
             }
         }
         return out
@@ -1194,13 +1248,13 @@ object Analyzer {
         val h = sec / 3600
         val m = (sec % 3600) / 60
         return when {
-            h >= 24 -> "$h год (${fmt1(h / 24.0)} доби)"
-            h > 0 -> "$h год $m хв"
-            else -> "$m хв"
+            h >= 24 -> tr("{0} год ({1} доби)", h, fmt1(h / 24.0))
+            h > 0 -> tr("{0} год {1} хв", h, m)
+            else -> tr("{0} хв", m)
         }
     }
 
-    fun energyString(wh: Double): String = if (wh >= 1000) "${fmt1(wh / 1000.0)} кВт·год" else "${fmt0(wh)} Вт·год"
+    fun energyString(wh: Double): String = if (wh >= 1000) tr("{0} кВт·год", fmt1(wh / 1000.0)) else tr("{0} Вт·год", fmt0(wh))
 
     fun fmt0(d: Double): String = String.format(Locale.US, "%.0f", d)
     fun fmt1(d: Double): String = String.format(Locale.US, "%.1f", d)

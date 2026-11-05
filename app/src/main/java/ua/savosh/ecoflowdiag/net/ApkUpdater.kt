@@ -1,5 +1,6 @@
 package ua.savosh.ecoflowdiag.net
 
+import ua.savosh.ecoflowdiag.core.tr
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInfo
@@ -23,7 +24,7 @@ object ApkUpdater {
     /** Завантажує APK у приватний кеш застосунку. [onProgress] — 0..100 або -1, якщо розмір невідомий. */
     fun download(ctx: Context, url: String, onProgress: (Int) -> Unit): File? {
         return try {
-            require(url.startsWith("https://")) { "Дозволено лише HTTPS" }
+            require(url.startsWith("https://")) { tr("Дозволено лише HTTPS") }
             // внутрішній кеш: на старих Android зовнішній кеш могли читати/підміняти інші застосунки
             val out = File(ctx.cacheDir, "update.apk")
             if (out.exists()) out.delete()
@@ -35,8 +36,8 @@ object ApkUpdater {
     }
 
     private fun fetch(url: String, out: File, onProgress: (Int) -> Unit, hop: Int) {
-        if (hop > 5) throw RuntimeException("Забагато перенаправлень")
-        require(url.startsWith("https://")) { "Редірект лише на HTTPS" }
+        if (hop > 5) throw RuntimeException(tr("Забагато перенаправлень"))
+        require(url.startsWith("https://")) { tr("Редірект лише на HTTPS") }
         val conn = URI(url).toURL().openConnection() as HttpURLConnection
         conn.connectTimeout = 15000
         conn.readTimeout = 30000
@@ -44,7 +45,7 @@ object ApkUpdater {
         conn.setRequestProperty("User-Agent", "SavoshDiag/$APP_VERSION")
         val code = conn.responseCode
         if (code in 300..399) {
-            val loc = conn.getHeaderField("Location") ?: throw RuntimeException("Редірект без Location")
+            val loc = conn.getHeaderField("Location") ?: throw RuntimeException(tr("Редірект без Location"))
             conn.disconnect()
             val next = if (loc.startsWith("http")) loc else URI(url).resolve(loc).toString()
             fetch(next, out, onProgress, hop + 1)
@@ -68,16 +69,14 @@ object ApkUpdater {
     }
 
     /**
-     * Чи підписаний завантажений APK чужим ключем (підміна файлу). true — точно чужий: не встановлювати.
-     * Якщо Android не віддав підписи (буває на деяких версіях), повертає false — тоді все одно
-     * захищає системний інсталятор: поверх нашого застосунку він не поставить APK з іншим підписом.
+     * Чи завантажений файл НЕ можна встановлювати: це не наш застосунок, підпис чужий або файл не вдається прочитати.
+     * Якщо Android не віддав підписи самого файлу (буває на старих версіях), вирішує системний інсталятор:
+     * поверх нашого застосунку він не поставить APK з іншим підписом.
      */
     fun foreignSigner(ctx: Context, apk: File): Boolean = try {
         val pm = ctx.packageManager
         val archive = pm.getPackageArchiveInfo(apk.absolutePath, signFlags())
-        if (archive == null) {
-            false
-        } else if (archive.packageName != ctx.packageName) {
+        if (archive == null || archive.packageName != ctx.packageName) {
             true
         } else {
             val mine = signers(pm.getPackageInfo(ctx.packageName, signFlags()))
@@ -85,7 +84,14 @@ object ApkUpdater {
             mine.isNotEmpty() && theirs.isNotEmpty() && mine != theirs
         }
     } catch (e: Exception) {
-        false
+        true
+    }
+
+    /** SHA-256 сертифікатів підпису цього застосунку. */
+    fun ownSigners(ctx: Context): Set<String> = try {
+        signers(ctx.packageManager.getPackageInfo(ctx.packageName, signFlags()))
+    } catch (e: Exception) {
+        emptySet()
     }
 
     @Suppress("DEPRECATION")

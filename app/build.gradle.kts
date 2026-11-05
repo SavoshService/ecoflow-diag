@@ -1,3 +1,4 @@
+import java.security.MessageDigest
 import java.util.Properties
 
 plugins {
@@ -11,7 +12,7 @@ android {
     compileSdk = 35
 
     // Секрети (токен Telegram-бота, client_secret Google) НЕ зберігаються в коді — репозиторій публічний.
-    //   • на GitHub — з GitHub Secrets TG_BOT_TOKEN / GOOGLE_CLIENT_SECRET (workflow передає їх змінними оточення);
+    //   • на GitHub — з GitHub Secrets TG_APP_BOT_TOKEN / GOOGLE_CLIENT_SECRET (workflow передає їх змінними оточення);
     //   • локально — з local.properties (у git не потрапляє).
     // Якщо секрету немає — відповідна функція просто вимикається.
     val localProps = Properties().apply {
@@ -19,14 +20,23 @@ android {
     }
     fun secret(name: String): String = (System.getenv(name) ?: localProps.getProperty(name) ?: "").trim()
 
+    // В APK секрети лежать змішаними (пара до net/Secrets.kt). Токен бота форуму сюди класти НЕ МОЖНА:
+    // будь-хто може розібрати APK, тому для застосунку — лише окремий бот, якого не шкода втратити.
+    fun hidden(name: String): String {
+        val key = MessageDigest.getInstance("SHA-256").digest("savosh-$name".toByteArray())
+        return secret(name).toByteArray().mapIndexed { i, b ->
+            "%02x".format((b.toInt() and 0xff) xor (key[i % key.size].toInt() and 0xff))
+        }.joinToString("")
+    }
+
     defaultConfig {
         applicationId = "ua.savosh.ecoflowdiag"
         minSdk = 26
         targetSdk = 35
-        versionCode = 34
-        versionName = "2.23"
-        buildConfigField("String", "TG_BOT_TOKEN", "\"${secret("TG_BOT_TOKEN")}\"")
-        buildConfigField("String", "GOOGLE_CLIENT_SECRET", "\"${secret("GOOGLE_CLIENT_SECRET")}\"")
+        versionCode = 35
+        versionName = "2.24"
+        buildConfigField("String", "TG_APP_TOKEN_X", "\"${hidden("TG_APP_BOT_TOKEN")}\"")
+        buildConfigField("String", "GOOGLE_SECRET_X", "\"${hidden("GOOGLE_CLIENT_SECRET")}\"")
     }
 
     // Постійний ключ підпису: нові збірки встановлюються поверх старих без видалення застосунку.
@@ -55,7 +65,10 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // Стиснення й заплутування коду: менший APK і важче розбирати.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             if (hasKeystore) signingConfig = signingConfigs.getByName("savosh")
         }
         debug {

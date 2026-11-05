@@ -1,5 +1,6 @@
 package ua.savosh.ecoflowdiag.net
 
+import ua.savosh.ecoflowdiag.core.tr
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -32,7 +33,7 @@ object GoogleDrive {
     // ===== Облікові дані OAuth (тип «Додаток для ПК», проєкт savosh-service) =====
     const val CLIENT_ID = "513137089324-jpvvu93lbc4nv0vub8vk668jigds3pl8.apps.googleusercontent.com"
     // секрет — з local.properties / GitHub Secrets (див. app/build.gradle.kts), у коді його немає
-    val CLIENT_SECRET: String = BuildConfig.GOOGLE_CLIENT_SECRET
+    val CLIENT_SECRET: String by lazy { Secrets.reveal("GOOGLE_CLIENT_SECRET", BuildConfig.GOOGLE_SECRET_X) }
 
     private const val SCOPE = "openid email https://www.googleapis.com/auth/drive.appdata"
     private const val AUTH_EP = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -68,6 +69,8 @@ object GoogleDrive {
             var line = ""
             for (attempt in 1..10) {
                 val got = server.accept().use { sock ->
+                    // Сторонній застосунок на телефоні не повинен тримати порт відкритим і зривати вхід.
+                    sock.soTimeout = 5000
                     val reqLine = BufferedReader(InputStreamReader(sock.getInputStream())).readLine() ?: ""
                     val ours = parseParam(reqLine, "state") == state
                     if (ours) respondDone(sock) else respond404(sock)
@@ -75,11 +78,11 @@ object GoogleDrive {
                 }
                 if (got != null) { line = got; break }
             }
-            if (line.isEmpty()) throw RuntimeException("Не отримано відповідь від Google. Спробуй увійти ще раз.")
+            if (line.isEmpty()) throw RuntimeException(tr("Не отримано відповідь від Google. Спробуй увійти ще раз."))
 
-            parseParam(line, "error")?.let { throw RuntimeException("Google відмовив: $it") }
+            parseParam(line, "error")?.let { throw RuntimeException(tr("Google відмовив: {0}", it)) }
             val code = parseParam(line, "code")
-                ?: throw RuntimeException("Не отримано код авторизації від Google.")
+                ?: throw RuntimeException(tr("Не отримано код авторизації від Google."))
             return exchange(code, redirect, verifier)
         }
     }
@@ -92,10 +95,7 @@ object GoogleDrive {
     }
 
     private fun respondDone(sock: java.net.Socket) {
-        val html = "<html><head><meta charset='utf-8'></head>" +
-            "<body style='font-family:sans-serif;text-align:center;padding-top:48px'>" +
-            "<h2>Майже готово ✅</h2><p>Повернись у застосунок Power Station Diag — " +
-            "вхід завершиться там за кілька секунд.</p></body></html>"
+        val html = tr("<html><head><meta charset='utf-8'></head><body style='font-family:sans-serif;text-align:center;padding-top:48px'><h2>Майже готово ✅</h2><p>Повернись у застосунок Power Station Diag — вхід завершиться там за кілька секунд.</p></body></html>")
         val bytes = html.toByteArray(Charsets.UTF_8)
         val out = sock.getOutputStream()
         out.write(
@@ -128,16 +128,15 @@ object GoogleDrive {
             if (tok != null) break
         }
         if (tok == null) {
-            throw RuntimeException("Немає зв'язку з Google при обміні токена ($lastError). " +
-                "Перевір, чи не обмежено фонові дані для застосунку.")
+            throw RuntimeException(tr("Немає зв'язку з Google при обміні токена ({0}). Перевір, чи не обмежено фонові дані для застосунку.", lastError))
         }
         if (tok.first !in 200..299) {
-            throw RuntimeException("Токен HTTP ${tok.first}: ${tok.second.take(250)}")
+            throw RuntimeException(tr("Токен HTTP {0}: {1}", tok.first, tok.second.take(250)))
         }
         val m = Json.parseOrNull(tok.second) as? Map<*, *>
-            ?: throw RuntimeException("Несподівана відповідь токена Google.")
+            ?: throw RuntimeException(tr("Несподівана відповідь токена Google."))
         val access = m["access_token"] as? String
-            ?: throw RuntimeException("Відповідь без access_token: ${tok.second.take(200)}")
+            ?: throw RuntimeException(tr("Відповідь без access_token: {0}", tok.second.take(200)))
         val refresh = (m["refresh_token"] as? String) ?: ""
         val exp = (m["expires_in"] as? Number)?.toLong() ?: 3600L
         val email = try { fetchEmail(access) } catch (e: Exception) { "" }

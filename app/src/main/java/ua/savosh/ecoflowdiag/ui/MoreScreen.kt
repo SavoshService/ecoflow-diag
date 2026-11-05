@@ -1,5 +1,6 @@
 package ua.savosh.ecoflowdiag.ui
 
+import ua.savosh.ecoflowdiag.core.tr
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -35,6 +36,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ua.savosh.ecoflowdiag.net.APP_VERSION
@@ -46,57 +48,57 @@ fun MoreScreen(vm: AppViewModel) {
     val ctx = LocalContext.current
     var showCoffee by remember { mutableStateOf(false) }
     Scaffold(
-        topBar = { TopAppBar(title = { Text("Ще", fontWeight = FontWeight.Bold) }) },
+        topBar = { TopAppBar(navigationIcon = { LanguageButton(vm) }, title = { FitText(tr("Ще"), fontWeight = FontWeight.Bold) }) },
         bottomBar = { MainNavBar(vm) },
     ) { pad ->
         Column(
             Modifier.fillMaxSize().padding(pad).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            SectionLabel("Записник майстра")
-            HubCard("📖", "Талмуд майстрів", "Статті з фото, маркуванням і аналогами — бачить уся спільнота.", Color(0xFF7C3AED)) {
+            SectionLabel(tr("Записник майстра"))
+            HubCard("📖", tr("Талмуд майстрів"), tr("Статті з фото, маркуванням і аналогами — бачить уся спільнота."), Color(0xFF7C3AED)) {
                 vm.openKnowledge()
             }
-            HubCard("📝", "Замітки майстра", "Нотатки, чеклисти й нагадування до станцій. Лише для тебе.", Color(0xFF2563EB)) {
+            HubCard("📝", tr("Замітки майстра"), tr("Нотатки, чеклисти й нагадування до станцій. Лише для тебе."), Color(0xFF2563EB)) {
                 vm.openNotes()
             }
 
-            SectionLabel("Майстерня")
+            SectionLabel(tr("Майстерня"))
             val trashed = vm.trashedOrders().size
             HubCard(
-                "🗑", "Корзина",
-                if (trashed == 0) "Видалені замовлення з'являтимуться тут — їх можна відновити." else "Видалених замовлень: $trashed. Можна відновити.",
+                "🗑", tr("Корзина"),
+                if (trashed == 0) tr("Видалені замовлення з'являтимуться тут — їх можна відновити.") else tr("Видалених замовлень: {0}. Можна відновити.", trashed),
                 Color(0xFF64748B),
             ) { vm.openCrmTab(3) }
 
-            SectionLabel("Інструменти")
-            HubCard("🔧", "Прошивка станцій", "Скоро: прошивка станцій з телефону через ESP32 + ST-Link V2.", Color(0xFF0EA5E9)) {
+            SectionLabel(tr("Інструменти"))
+            HubCard("🔧", tr("Прошивка станцій"), tr("Скоро: прошивка станцій з телефону через ESP32 + ST-Link V2."), Color(0xFF0EA5E9)) {
                 vm.openFlash()
             }
 
-            SectionLabel("Дані")
+            SectionLabel(tr("Дані"))
             HubCard(
-                "💾", "Резервна копія",
-                if (vm.gdConnected) "✓ Google: ${vm.gdEmail.ifBlank { "підключено" }}. Зберігається сама." else "Увійди через Google — і дані не загубляться при перевстановленні.",
+                "💾", tr("Резервна копія"),
+                if (vm.gdConnected) tr("✓ Google: {0}. Зберігається сама.", vm.gdEmail.ifBlank { tr("підключено") }) else tr("Увійди через Google — і дані не загубляться при перевстановленні."),
                 Color(0xFFEA580C),
             ) { vm.openBackup() }
 
-            SectionLabel("Спільнота")
-            HubCard("📣", "Канал спільноти", "Новини, обговорення й спільна база знань майстрів.", Color(0xFF16A34A)) {
+            SectionLabel(tr("Спільнота"))
+            HubCard("📣", tr("Канал спільноти"), tr("Новини, обговорення й спільна база знань майстрів."), Color(0xFF16A34A)) {
                 openUrl(ctx, COMMUNITY_URL)
             }
-            HubCard("✈️", "Зворотний зв'язок", "Питання, ідеї, баги — у Телеграм-канал Savosh Service.", Color(0xFF0284C7)) {
+            HubCard("✈️", tr("Зворотний зв'язок"), tr("Питання, ідеї, баги — у Телеграм-канал Savosh Service."), Color(0xFF0284C7)) {
                 vm.openFeedback()
             }
             if (donateEnabled()) {
-                HubCard("☕", "Підтримати автора", "Програма безкоштовна. Якщо стала в пригоді — можна кинути на каву.", Color(0xFFB45309)) {
+                HubCard("☕", tr("Підтримати автора"), tr("Програма безкоштовна. Якщо стала в пригоді — можна кинути на каву."), Color(0xFFB45309)) {
                     showCoffee = true
                 }
             }
 
             Spacer(Modifier.height(4.dp))
             Text(
-                "Power Station Diag · версія $APP_VERSION",
+                tr("Power Station Diag · версія {0}", APP_VERSION),
                 modifier = Modifier.fillMaxWidth(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

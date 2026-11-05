@@ -29,68 +29,79 @@ object EcoflowCommands {
     fun supported(gen: Generation): Boolean = gen == Generation.GEN2
 
     fun unsupportedNote(gen: Generation): String = when (gen) {
-        Generation.GEN1 -> "Для 1-го покоління (Delta/River оригінальні, Delta Pro) формат команд інший — поки не доданий."
-        Generation.GEN3 -> "Для 3-го покоління команди йдуть у protobuf — поки не доданий, щоб не вгадувати формат."
-        else -> "Модель не визначена — керування недоступне."
+        Generation.GEN1 -> tr("Для 1-го покоління (Delta/River оригінальні, Delta Pro) формат команд інший — поки не доданий.")
+        Generation.GEN3 -> tr("Для 3-го покоління команди йдуть у protobuf — поки не доданий, щоб не вгадувати формат.")
+        else -> tr("Модель не визначена — керування недоступне.")
     }
 
     // ------------------------------------------------------------ 2-ге покоління (JSON)
 
-    private fun g2(moduleType: Int, operateType: String, params: Map<String, Any?>): String {
+    private fun g2(moduleType: Int, operateType: String, params: Map<String, Any?>, moduleSn: String? = null): String {
         val body = linkedMapOf<String, Any?>(
             "id" to Random.nextInt(100000, 999999),
             "version" to "1.0",
             "moduleType" to moduleType,
             "operateType" to operateType,
-            "params" to params,
         )
+        moduleSn?.let { body["moduleSn"] = it }
+        body["params"] = params
         return Json.stringify(body)
     }
 
+    /** DELTA 2 Max: інвертор — інший модуль (3, а не 5), а команди адресуються за серійним номером. */
+    private fun isDelta2Max(sn: String): Boolean = sn.startsWith("R35")
+    private fun moduleSn(sn: String): String? = sn.takeIf { isDelta2Max(it) }
+
     /** Увімкнення/вимкнення виходу 220 В (інвертор). */
-    fun acOut(on: Boolean): DeviceCommand = DeviceCommand(
+    fun acOut(on: Boolean, sn: String): DeviceCommand = DeviceCommand(
         key = "ac",
-        title = if (on) "Увімкнути 220 В" else "Вимкнути 220 В",
+        title = if (on) tr("Увімкнути 220 В") else tr("Вимкнути 220 В"),
         confirm = if (on) {
-            "Увімкнути вихід 220 В на станції? На розетки подасться напруга — переконайтесь, що це безпечно."
+            tr("Увімкнути вихід 220 В на станції? На розетки подасться напруга — переконайтесь, що це безпечно.")
         } else {
-            "Вимкнути вихід 220 В? Усе, що живиться від розеток станції, знеструмиться."
+            tr("Вимкнути вихід 220 В? Усе, що живиться від розеток станції, знеструмиться.")
         },
-        json = g2(5, "acOutCfg", linkedMapOf("enabled" to if (on) 1 else 0, "xboost" to 1, "out_voltage" to 4294967295L, "out_freq" to 1)),
+        // 255 і -1 означають «не змінювати»: інакше разом із виходом перемикались би X-Boost і частота.
+        json = g2(
+            if (isDelta2Max(sn)) 3 else 5,
+            "acOutCfg",
+            linkedMapOf("enabled" to if (on) 1 else 0, "out_voltage" to -1, "out_freq" to 255, "xboost" to 255),
+            moduleSn(sn),
+        ),
         powerAffecting = true,
     )
 
     /** Увімкнення/вимкнення DC-виходу 12 В (авторозетка). */
     fun dcOut(on: Boolean): DeviceCommand = DeviceCommand(
         key = "dc",
-        title = if (on) "Увімкнути DC 12 В" else "Вимкнути DC 12 В",
-        confirm = if (on) "Увімкнути DC-вихід 12 В?" else "Вимкнути DC-вихід 12 В?",
-        json = g2(5, "dcOutCfg", linkedMapOf("enabled" to if (on) 1 else 0)),
+        title = if (on) tr("Увімкнути DC 12 В") else tr("Вимкнути DC 12 В"),
+        confirm = if (on) tr("Увімкнути DC-вихід 12 В?") else tr("Вимкнути DC-вихід 12 В?"),
+        json = g2(5, "mpptCar", linkedMapOf("enabled" to if (on) 1 else 0)),
         powerAffecting = true,
     )
 
     /** Ліміт заряду (максимальний SOC), %. */
-    fun maxChargeSoc(soc: Int): DeviceCommand = DeviceCommand(
+    fun maxChargeSoc(soc: Int, sn: String): DeviceCommand = DeviceCommand(
         key = "maxChg",
-        title = "Ліміт заряду $soc%",
-        confirm = "Виставити ліміт заряду $soc%?",
-        json = g2(2, "upsConfig", linkedMapOf("maxChgSoc" to soc.coerceIn(50, 100))),
+        title = tr("Ліміт заряду {0}%", soc),
+        confirm = tr("Виставити ліміт заряду {0}%?", soc),
+        json = g2(2, "upsConfig", linkedMapOf("maxChgSoc" to soc.coerceIn(50, 100)), moduleSn(sn)),
         powerAffecting = false,
     )
 
     /** Нижній ліміт розряду (мінімальний SOC), %. */
-    fun minDischargeSoc(soc: Int): DeviceCommand = DeviceCommand(
+    fun minDischargeSoc(soc: Int, sn: String): DeviceCommand = DeviceCommand(
         key = "minDsg",
-        title = "Нижній ліміт розряду $soc%",
-        confirm = "Виставити нижній ліміт розряду $soc%?",
-        json = g2(2, "dsgCfg", linkedMapOf("minDsgSoc" to soc.coerceIn(0, 30))),
+        title = tr("Нижній ліміт розряду {0}%", soc),
+        confirm = tr("Виставити нижній ліміт розряду {0}%?", soc),
+        json = g2(2, "dsgCfg", linkedMapOf("minDsgSoc" to soc.coerceIn(0, 30)), moduleSn(sn)),
         powerAffecting = false,
     )
 
     /** Набір швидких дій для 2-го покоління. */
-    fun quickActions(): List<DeviceCommand> = listOf(
-        acOut(true), acOut(false),
+    fun quickActions(sn: String): List<DeviceCommand> = listOf(
+        acOut(true, sn), acOut(false, sn),
         dcOut(true), dcOut(false),
-        maxChargeSoc(100), minDischargeSoc(0),
+        maxChargeSoc(100, sn), minDischargeSoc(0, sn),
     )
 }

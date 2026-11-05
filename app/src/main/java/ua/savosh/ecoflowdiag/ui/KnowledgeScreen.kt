@@ -1,5 +1,8 @@
 package ua.savosh.ecoflowdiag.ui
 
+import androidx.activity.compose.BackHandler
+import ua.savosh.ecoflowdiag.core.localize
+import ua.savosh.ecoflowdiag.core.tr
 import android.graphics.BitmapFactory
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -45,13 +48,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ua.savosh.ecoflowdiag.core.Article
@@ -90,30 +97,26 @@ fun KnowledgeScreen(vm: AppViewModel) {
     Scaffold(
         topBar = {
             TopAppBar(
-                navigationIcon = { IconButton(onClick = { vm.back() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад") } },
-                title = { Text("📖 Талмуд майстра", fontWeight = FontWeight.Bold) },
+                navigationIcon = { IconButton(onClick = { vm.back() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr("Назад")) } },
+                title = { FitText(tr("📖 Талмуд майстра"), fontWeight = FontWeight.Bold) },
             )
         },
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = { editingId = null; editorOpen = true },
-                icon = { Text("✒", style = MaterialTheme.typography.titleMedium) },
-                text = { Text("Нова стаття") },
+                icon = { Text("✒", style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { contentDescription = tr("Нова стаття") }) },
+                text = { Text(tr("Нова стаття")) },
             )
         },
     ) { pad ->
         if (sections.isEmpty()) {
-            Column(
-                Modifier.fillMaxSize().padding(pad).padding(32.dp),
-                verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
+            CenteredScroll(Modifier.fillMaxSize().padding(pad).padding(32.dp)) {
                 Text("📖", style = MaterialTheme.typography.headlineMedium)
                 Spacer(Modifier.height(8.dp))
-                Text("Талмуд поки порожній", style = MaterialTheme.typography.titleMedium)
+                Text(tr("Талмуд поки порожній"), style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Натисніть «Нова стаття», щоб записати знання про деталь: маркування, аналоги, нюанси ремонту — " +
-                        "з фото плати. Стаття оформиться як сторінка наукового журналу.",
+                    tr("Натисніть «Нова стаття», щоб записати знання про деталь: маркування, аналоги, нюанси ремонту — з фото плати. Стаття оформиться як сторінка наукового журналу."),
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                 )
@@ -152,10 +155,10 @@ private fun ArticleRow(a: Article, onClick: () -> Unit) {
             .padding(14.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(a.title.ifBlank { "Без назви" }, Modifier.weight(1f),
+            Text(a.title.ifBlank { tr("Без назви") }, Modifier.weight(1f),
                 style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             if (a.official) {
-                Text("офіц.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                Text(tr("офіц."), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
             }
             if (a.photos.isNotEmpty()) {
                 Spacer(Modifier.width(6.dp))
@@ -164,7 +167,7 @@ private fun ArticleRow(a: Article, onClick: () -> Unit) {
         }
         val sub = listOf(a.subsection, a.marking).filter { it.isNotBlank() }.joinToString(" · ")
         if (sub.isNotBlank()) {
-            Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            Text(sub, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -179,13 +182,14 @@ private fun ArticleView(
     onBack: () -> Unit,
     onEdit: () -> Unit,
 ) {
+    BackHandler(onBack = onBack)
     Scaffold(
         topBar = {
             TopAppBar(
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад") } },
-                title = { Text("Стаття", fontWeight = FontWeight.Bold) },
+                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr("Назад")) } },
+                title = { FitText(tr("Стаття"), fontWeight = FontWeight.Bold) },
                 actions = {
-                    if (!a.official) TextButton(onClick = onEdit) { Text("✎ Редагувати") }
+                    if (!a.official) TextButton(onClick = onEdit) { Text(tr("✎ Редагувати")) }
                 },
             )
         },
@@ -196,22 +200,22 @@ private fun ArticleView(
         ) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 20.dp)) {
                 Text(
-                    (a.section + if (a.subsection.isNotBlank()) " · " + a.subsection else "").uppercase(),
+                    (localize(a.section) + if (a.subsection.isNotBlank()) " · " + a.subsection else "").uppercase(),
                     style = MaterialTheme.typography.labelMedium, color = Seal, fontFamily = Serif, letterSpacing = 2.sp,
                 )
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    a.title.ifBlank { "Без назви" },
+                    a.title.ifBlank { tr("Без назви") },
                     fontFamily = Serif, fontWeight = FontWeight.Bold, color = Ink,
                     fontSize = 26.sp, lineHeight = 32.sp,
                 )
                 Spacer(Modifier.height(6.dp))
                 if (a.author.isNotBlank()) {
-                    Text("автор: ${a.author}", fontFamily = Serif, color = InkSoft, fontSize = 13.sp)
+                    Text(tr("автор: {0}", a.author), fontFamily = Serif, color = InkSoft, fontSize = 13.sp)
                 }
                 OrnamentRule()
-                if (a.marking.isNotBlank()) FieldLine("Маркування", a.marking)
-                if (a.analogs.isNotBlank()) FieldLine("Аналоги", a.analogs)
+                if (a.marking.isNotBlank()) FieldLine(tr("Маркування"), a.marking)
+                if (a.analogs.isNotBlank()) FieldLine(tr("Аналоги"), a.analogs)
                 if (a.marking.isNotBlank() || a.analogs.isNotBlank()) Spacer(Modifier.height(10.dp))
 
                 if (a.body.isNotBlank()) {
@@ -220,7 +224,7 @@ private fun ArticleView(
 
                 a.photos.forEachIndexed { i, name ->
                     Spacer(Modifier.height(16.dp))
-                    ArticlePhoto(path = photoPath(name), caption = "Рис. ${i + 1}")
+                    ArticlePhoto(path = photoPath(name), caption = tr("Рис. {0}", i + 1))
                 }
 
                 OrnamentRule()
@@ -252,15 +256,24 @@ private fun OrnamentRule() {
     }
 }
 
+/** Фото з камери буває на 50 Мп: у повному розмірі воно валить застосунок при малюванні, тож зменшуємо під екран. */
+private fun decodePhoto(path: String, maxSide: Int): ImageBitmap? = runCatching {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(path, bounds)
+    var sample = 1
+    while (maxOf(bounds.outWidth, bounds.outHeight) / sample > maxSide) sample *= 2
+    BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inSampleSize = sample })?.asImageBitmap()
+}.getOrNull()
+
 @Composable
 private fun ArticlePhoto(path: String, caption: String) {
-    val bmp = remember(path) { runCatching { BitmapFactory.decodeFile(path)?.asImageBitmap() }.getOrNull() }
+    val bmp = remember(path) { decodePhoto(path, 1600) }
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
         Box(Modifier.fillMaxWidth().background(PaperDim).padding(6.dp)) {
             if (bmp != null) {
                 Image(bitmap = bmp, contentDescription = caption, modifier = Modifier.fillMaxWidth(), contentScale = ContentScale.FillWidth)
             } else {
-                Text("(фото недоступне)", Modifier.padding(20.dp), color = InkSoft, fontFamily = Serif)
+                Text(tr("(фото недоступне)"), Modifier.padding(20.dp), color = InkSoft, fontFamily = Serif)
             }
         }
         Spacer(Modifier.height(4.dp))
@@ -274,7 +287,7 @@ private fun ArticlePhoto(path: String, caption: String) {
 @Composable
 private fun ArticleEditor(vm: AppViewModel, articleId: Long?, onClose: () -> Unit) {
     val existing = vm.articleById(articleId)?.takeIf { !it.official }
-    var section by rememberSaveable { mutableStateOf(existing?.section ?: "Загальне") }
+    var section by rememberSaveable { mutableStateOf(existing?.section?.let { localize(it) } ?: tr("Загальне")) }
     var subsection by rememberSaveable { mutableStateOf(existing?.subsection ?: "") }
     var title by rememberSaveable { mutableStateOf(existing?.title ?: "") }
     var marking by rememberSaveable { mutableStateOf(existing?.marking ?: "") }
@@ -287,11 +300,12 @@ private fun ArticleEditor(vm: AppViewModel, articleId: Long?, onClose: () -> Uni
         if (uris.isNotEmpty()) photos = photos + vm.importPhotos(uris)
     }
 
+    BackHandler(onBack = onClose)
     Scaffold(
         topBar = {
             TopAppBar(
-                navigationIcon = { IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад") } },
-                title = { Text(if (articleId == null) "Нова стаття" else "Редагування", fontWeight = FontWeight.Bold) },
+                navigationIcon = { IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr("Назад")) } },
+                title = { FitText(if (articleId == null) tr("Нова стаття") else tr("Редагування"), fontWeight = FontWeight.Bold) },
                 actions = {
                     if (existing != null) IconButton(onClick = { confirmDel = true }) { Text("🗑", style = MaterialTheme.typography.titleMedium) }
                 },
@@ -299,23 +313,23 @@ private fun ArticleEditor(vm: AppViewModel, articleId: Long?, onClose: () -> Uni
         },
     ) { pad ->
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(pad),
+            modifier = Modifier.fillMaxSize().formPadding(pad),
             contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 32.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedTextField(section, { section = it }, Modifier.weight(1f), label = { Text("Розділ") }, singleLine = true)
-                    OutlinedTextField(subsection, { subsection = it }, Modifier.weight(1f), label = { Text("Підрозділ") }, singleLine = true)
+                    OutlinedTextField(section, { section = it }, Modifier.weight(1f), label = { FitText(tr("Розділ")) }, singleLine = true)
+                    OutlinedTextField(subsection, { subsection = it }, Modifier.weight(1f), label = { FitText(tr("Підрозділ")) }, singleLine = true)
                 }
             }
-            item { OutlinedTextField(title, { title = it }, Modifier.fillMaxWidth(), label = { Text("Назва статті") }, singleLine = true) }
-            item { OutlinedTextField(marking, { marking = it }, Modifier.fillMaxWidth(), label = { Text("Маркування деталей") }, singleLine = true) }
-            item { OutlinedTextField(analogs, { analogs = it }, Modifier.fillMaxWidth(), label = { Text("Аналоги") }, singleLine = true) }
-            item { OutlinedTextField(body, { body = it }, Modifier.fillMaxWidth().height(220.dp), label = { Text("Текст статті") }) }
+            item { OutlinedTextField(title, { title = it }, Modifier.fillMaxWidth(), label = { Text(tr("Назва статті")) }, singleLine = true) }
+            item { OutlinedTextField(marking, { marking = it }, Modifier.fillMaxWidth(), label = { Text(tr("Маркування деталей")) }, singleLine = true) }
+            item { OutlinedTextField(analogs, { analogs = it }, Modifier.fillMaxWidth(), label = { Text(tr("Аналоги")) }, singleLine = true) }
+            item { OutlinedTextField(body, { body = it }, Modifier.fillMaxWidth().height(220.dp), label = { Text(tr("Текст статті")) }) }
             item {
                 Column {
-                    Text("Фото (${photos.size})", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(tr("Фото ({0})", photos.size), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(6.dp))
                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         photos.forEach { name ->
@@ -323,7 +337,7 @@ private fun ArticleEditor(vm: AppViewModel, articleId: Long?, onClose: () -> Uni
                         }
                     }
                     Spacer(Modifier.height(8.dp))
-                    TextButton(onClick = { picker.launch("image/*") }) { Text("📷 Додати фото") }
+                    TextButton(onClick = { picker.launch("image/*") }) { FitText(tr("📷 Додати фото")) }
                 }
             }
             item {
@@ -332,8 +346,8 @@ private fun ArticleEditor(vm: AppViewModel, articleId: Long?, onClose: () -> Uni
                         vm.saveArticle(articleId, section, subsection, title, marking, analogs, body, photos)
                         onClose()
                     },
-                    icon = { Text("✒", style = MaterialTheme.typography.titleMedium) },
-                    text = { Text(if (articleId == null) "Опублікувати у талмуд" else "Зберегти") },
+                    icon = { Text("✒", style = MaterialTheme.typography.titleMedium, modifier = Modifier.semantics { contentDescription = tr("Зберегти") }) },
+                    text = { Text(if (articleId == null) tr("Опублікувати у талмуд") else tr("Зберегти")) },
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -342,17 +356,17 @@ private fun ArticleEditor(vm: AppViewModel, articleId: Long?, onClose: () -> Uni
     if (confirmDel && existing != null) {
         AlertDialog(
             onDismissRequest = { confirmDel = false },
-            title = { Text("Видалити статтю?") },
-            text = { Text("«${existing.title}» буде стерто з талмуда разом із фото.") },
-            confirmButton = { TextButton(onClick = { confirmDel = false; vm.deleteArticle(existing.id); onClose() }) { Text("Видалити") } },
-            dismissButton = { TextButton(onClick = { confirmDel = false }) { Text("Скасувати") } },
+            title = { Text(tr("Видалити статтю?")) },
+            text = { DialogText(tr("«{0}» буде стерто з талмуда разом із фото.", existing.title)) },
+            confirmButton = { TextButton(onClick = { confirmDel = false; vm.deleteArticle(existing.id); onClose() }) { Text(tr("Видалити")) } },
+            dismissButton = { TextButton(onClick = { confirmDel = false }) { Text(tr("Скасувати")) } },
         )
     }
 }
 
 @Composable
 private fun PhotoThumb(path: String, onRemove: () -> Unit) {
-    val bmp = remember(path) { runCatching { BitmapFactory.decodeFile(path)?.asImageBitmap() }.getOrNull() }
+    val bmp = remember(path) { decodePhoto(path, 256) }
     Box(Modifier.size(84.dp).clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceContainerHigh)) {
         if (bmp != null) {
             Image(bitmap = bmp, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
@@ -372,29 +386,27 @@ private fun PhotoThumb(path: String, onRemove: () -> Unit) {
 fun ShareConsentDialog(vm: AppViewModel) {
     AlertDialog(
         onDismissRequest = {},   // лише кнопкою — щоб людина точно прочитала
-        title = { Text("📖 Спільна база майстрів", fontWeight = FontWeight.Bold) },
+        title = { FitText(tr("📖 Спільна база майстрів"), fontWeight = FontWeight.Bold) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text(
-                    "Статті, які ти додаєш у талмуд (текст і фото), автоматично надсилаються " +
-                        "у спільну базу Savosh Service — Telegram-групу майстрів, щоб знання бачили всі.",
+                    tr("Статті, які ти додаєш у талмуд (текст і фото), автоматично надсилаються у спільну базу Savosh Service — Telegram-групу майстрів, щоб знання бачили всі."),
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Нові коди помилок станцій теж надсилаються — анонімно: лише модель і код, " +
-                        "без серійного номера.",
+                    tr("Нові коди помилок станцій теж надсилаються — анонімно: лише модель і код, без серійного номера."),
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Пароль EcoFlow, замовлення, склад і нотатки нікуди не надсилаються.",
+                    tr("Пароль EcoFlow, замовлення, склад і нотатки нікуди не надсилаються."),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         },
-        confirmButton = { TextButton(onClick = { vm.acceptShareConsent() }) { Text("Зрозуміло, погоджуюсь") } },
+        confirmButton = { TextButton(onClick = { vm.acceptShareConsent() }) { Text(tr("Зрозуміло, погоджуюсь")) } },
     )
 }
 
@@ -402,11 +414,11 @@ fun ShareConsentDialog(vm: AppViewModel) {
 fun WhatsNewDialog(vm: AppViewModel) {
     AlertDialog(
         onDismissRequest = { vm.dismissWhatsNew() },
-        title = { Text("🆕 Що нового", fontWeight = FontWeight.Bold) },
+        title = { FitText(tr("🆕 Що нового"), fontWeight = FontWeight.Bold) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 for (rel in vm.whatsNew) {
-                    Text("Версія ${rel.version}", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Text(tr("Версія {0}", rel.version), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                     Spacer(Modifier.height(4.dp))
                     for (ch in rel.changes) {
                         Row(Modifier.padding(vertical = 2.dp)) {
@@ -418,6 +430,6 @@ fun WhatsNewDialog(vm: AppViewModel) {
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { vm.dismissWhatsNew() }) { Text("Чудово!") } },
+        confirmButton = { TextButton(onClick = { vm.dismissWhatsNew() }) { Text(tr("Чудово!")) } },
     )
 }

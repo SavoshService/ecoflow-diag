@@ -1,5 +1,6 @@
 package ua.savosh.ecoflowdiag.net
 
+import ua.savosh.ecoflowdiag.core.tr
 import ua.savosh.ecoflowdiag.BuildConfig
 import ua.savosh.ecoflowdiag.core.Json
 import java.net.HttpURLConnection
@@ -21,9 +22,15 @@ val APP_VERSION: String = BuildConfig.VERSION_NAME
 // Один публічний репозиторій: CI збирає APK і публікує його в релізи цього ж репозиторію.
 const val UPDATE_MANIFEST_URL = "https://github.com/SavoshService/ecoflow-diag/releases/download/latest/latest.json"
 
+/** Звідки дозволено завантажувати оновлення: лише релізи цього репозиторію. */
+private const val RELEASES_PREFIX = "https://github.com/SavoshService/ecoflow-diag/releases/download/"
+
 class UpdateInfo(val version: String, val url: String, val notes: String)
 
 object Updater {
+
+    /** Посилання на оновлення може прийти з чужого застосунку через Intent: приймаємо лише наші релізи. */
+    fun isTrustedUrl(url: String): Boolean = url.startsWith(RELEASES_PREFIX) && !url.contains("..")
 
     fun configured(): Boolean =
         UPDATE_MANIFEST_URL.startsWith("https://") &&
@@ -38,7 +45,7 @@ object Updater {
             val m = Json.parseObject(text) ?: return null
             val version = m["version"]?.toString() ?: return null
             val url = m["url"]?.toString() ?: return null
-            if (!url.startsWith("https://")) return null
+            if (!isTrustedUrl(url)) return null
             if (!isNewer(version, current)) return null
             UpdateInfo(version, url, m["notes"]?.toString() ?: "")
         } catch (e: Exception) {
@@ -58,8 +65,8 @@ object Updater {
 
     /** GET з ручним проходом по редіректах (GitHub Releases веде на objects.githubusercontent.com). */
     private fun httpsGet(startUrl: String, hop: Int = 0): String {
-        require(startUrl.startsWith("https://")) { "Дозволено лише HTTPS" }
-        if (hop > 5) throw RuntimeException("Забагато перенаправлень")
+        require(startUrl.startsWith("https://")) { tr("Дозволено лише HTTPS") }
+        if (hop > 5) throw RuntimeException(tr("Забагато перенаправлень"))
         val conn = URI(startUrl).toURL().openConnection() as HttpURLConnection
         conn.connectTimeout = 10000
         conn.readTimeout = 15000
@@ -68,10 +75,10 @@ object Updater {
         conn.setRequestProperty("Accept", "application/json, */*")
         val code = conn.responseCode
         if (code in 300..399) {
-            val loc = conn.getHeaderField("Location") ?: throw RuntimeException("Редірект без Location")
+            val loc = conn.getHeaderField("Location") ?: throw RuntimeException(tr("Редірект без Location"))
             conn.disconnect()
             val next = if (loc.startsWith("http")) loc else URI(startUrl).resolve(loc).toString()
-            require(next.startsWith("https://")) { "Редірект лише на HTTPS" }
+            require(next.startsWith("https://")) { tr("Редірект лише на HTTPS") }
             return httpsGet(next, hop + 1)
         }
         if (code !in 200..299) throw RuntimeException("HTTP $code")

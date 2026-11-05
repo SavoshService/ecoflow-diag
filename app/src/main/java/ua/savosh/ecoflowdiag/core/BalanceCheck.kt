@@ -92,7 +92,7 @@ class BalanceCheck(val sn: String) {
         maxCellMv = main.maxCellMv
         deltaMv = main.cellDeltaMv
         chemistry = main.chemistry
-        chargeLimit = Analyzer.numOf(params["ems.maxChargeSoc"]) ?: Analyzer.numOf(params["bms_emsStatus.maxChargeSoc"]) ?: chargeLimit
+        chargeLimit = Analyzer.chargeLimit(params) ?: chargeLimit
         lastDataMs = nowMs
         if (phase != Phase.RUNNING) return
 
@@ -126,33 +126,32 @@ class BalanceCheck(val sn: String) {
     fun warnings(): List<String> {
         val out = ArrayList<String>()
         chargeLimit?.let {
-            if (it < 99.5) out.add("Ліміт заряду ${fmt0(it)}% — станція не зарядиться до верху. Виставте 100% у застосунку EcoFlow.")
+            if (it < 99.5) out.add(tr("Ліміт заряду {0}% — станція не зарядиться до верху. Виставте 100% у застосунку EcoFlow.", fmt0(it)))
         }
         val s = soc
         if (phase == Phase.RUNNING && !autoDone && (ampA ?: 0.0) < 0.3 && s != null && s < (chargeLimit ?: 100.0) - 1) {
-            out.add("Станція зараз не заряджається — поставте її на заряд від мережі.")
+            out.add(tr("Станція зараз не заряджається — поставте її на заряд від мережі."))
         }
         return out
     }
 
     /** Чому висновку немає (зона не настала). */
     fun noZoneText(): String {
-        val peak = peakCellMv?.let { " Найвища група дійшла лише до ${fmt3(it / 1000.0)} В." } ?: ""
-        return "Заряд не дійшов до зони, де видно баланс (LFP — групи вище 3.45 В, NCM — від 90%), тому висновку немає.$peak " +
-            "Поставте ліміт заряду 100% і заряджайте до кінця."
+        val peak = peakCellMv?.let { tr(" Найвища група дійшла лише до {0} В.", fmt3(it / 1000.0)) } ?: ""
+        return tr("Заряд не дійшов до зони, де видно баланс (LFP — групи вище 3.45 В, NCM — від 90%), тому висновку немає.{0} Поставте ліміт заряду 100% і заряджайте до кінця.", peak)
     }
 
     /** Один рядок для журналу перевірок. */
     fun shortResult(): String {
-        val w = worst() ?: return "зону висновку не досягнуто"
-        return "${w.deltaMv} мВ наприкінці заряду — ${verdict(w).title.lowercase()}"
+        val w = worst() ?: return tr("зону висновку не досягнуто")
+        return tr("{0} мВ наприкінці заряду — {1}", w.deltaMv, verdict(w).title.lowercase())
     }
 
     fun summaryText(model: String?, dateText: String): String {
         val sb = StringBuilder()
-        sb.appendLine("Перевірка балансу груп наприкінці заряду")
-        sb.appendLine("Дата: $dateText")
-        sb.appendLine("Станція: ${model ?: "?"} · SN $sn")
+        sb.appendLine(tr("Перевірка балансу груп наприкінці заряду"))
+        sb.appendLine(tr("Дата: {0}", dateText))
+        sb.appendLine(tr("Станція: {0} · SN {1}", model ?: "?", sn))
         sb.appendLine()
         val res = results
         if (res.isEmpty()) {
@@ -163,13 +162,13 @@ class BalanceCheck(val sn: String) {
                 if (res.size > 1) sb.appendLine("■ ${t.title}")
                 sb.appendLine("${v.title}. ${v.detail}")
                 sb.appendLine(
-                    "Зафіксовано при заряді ${t.soc?.let { fmt0(it) + "%" } ?: "?"}" +
-                        (t.maxCellMv?.let { ", найвища група ${fmt3(it / 1000.0)} В" } ?: "") + ".",
+                    tr("Зафіксовано при заряді {0}", t.soc?.let { fmt0(it) + "%" } ?: "?") +
+                        (t.maxCellMv?.let { tr(", найвища група {0} В", fmt3(it / 1000.0)) } ?: "") + ".",
                 )
             }
         }
         sb.appendLine()
-        sb.appendLine("Розкид враховано лише біля верху заряду, де розбаланс справді видно (на плато LFP його не видно).")
+        sb.appendLine(tr("Розкид враховано лише біля верху заряду, де розбаланс справді видно (на плато LFP його не видно)."))
         return sb.toString()
     }
 
@@ -189,26 +188,24 @@ class BalanceCheck(val sn: String) {
         fun verdict(t: Top): Verdict {
             val d = t.deltaMv
             val who = t.highCell?.let {
-                " Першою до верху доходить група №$it — у неї або більший заряд за інші (розбаланс), або менша ємність."
+                tr(" Першою до верху доходить група №{0} — у неї або більший заряд за інші (розбаланс), або менша ємність.", it)
             } ?: ""
             return when {
-                d <= 30 -> Verdict(Level.GOOD, "Групи збалансовані", "Розкид наприкінці заряду $d мВ — норма.")
+                d <= 30 -> Verdict(Level.GOOD, tr("Групи збалансовані"), tr("Розкид наприкінці заряду {0} мВ — норма.", d))
                 d <= 70 -> Verdict(
                     Level.WARN,
-                    "Помірний дисбаланс",
-                    "Розкид наприкінці заряду $d мВ.$who BMS вирівнює групи саме наприкінці заряду: кілька повних зарядів " +
-                        "до 100% з паузою на 100% зазвичай зменшують розкид. Повторіть перевірку після них.",
+                    tr("Помірний дисбаланс"),
+                    tr("Розкид наприкінці заряду {0} мВ.{1} BMS вирівнює групи саме наприкінці заряду: кілька повних зарядів до 100% з паузою на 100% зазвичай зменшують розкид. Повторіть перевірку після них.", d, who),
                 )
                 d <= 150 -> Verdict(
                     Level.BAD,
-                    "Сильний дисбаланс",
-                    "Розкид наприкінці заряду $d мВ.$who Якщо після кількох повних зарядів не зменшиться — потрібне " +
-                        "сервісне балансування; можлива слабка група.",
+                    tr("Сильний дисбаланс"),
+                    tr("Розкид наприкінці заряду {0} мВ.{1} Якщо після кількох повних зарядів не зменшиться — потрібне сервісне балансування; можлива слабка група.", d, who),
                 )
                 else -> Verdict(
                     Level.CRITICAL,
-                    "Дуже сильний дисбаланс",
-                    "Розкид наприкінці заряду $d мВ.$who Ймовірна слабка або пошкоджена група — батарею треба перевірити.",
+                    tr("Дуже сильний дисбаланс"),
+                    tr("Розкид наприкінці заряду {0} мВ.{1} Ймовірна слабка або пошкоджена група — батарею треба перевірити.", d, who),
                 )
             }
         }

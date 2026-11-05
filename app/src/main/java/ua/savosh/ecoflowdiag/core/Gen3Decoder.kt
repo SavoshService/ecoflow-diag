@@ -83,14 +83,16 @@ object Gen3Decoder {
         val description: String,
     )
 
-    /** Чи схожий payload на JSON (перший не-пробільний символ — '{'). */
+    /**
+     * Чи схожий payload на JSON: відкривається дужкою і закривається дужкою.
+     * Лише початку мало. Protobuf починається байтом 0x0A (це «перевід рядка»), а далі йде довжина блоку:
+     * при довжині 91 чи 123 це символи «[» і «{», і таке повідомлення станції відкидалось як «некоректний JSON».
+     */
     fun looksLikeJson(payload: ByteArray): Boolean {
-        for (b in payload) {
-            val c = b.toInt().toChar()
-            if (c == ' ' || c == '\n' || c == '\r' || c == '\t') continue
-            return c == '{' || c == '['
-        }
-        return false
+        fun isSpace(b: Byte) = b.toInt().toChar().let { it == ' ' || it == '\n' || it == '\r' || it == '\t' }
+        val first = payload.firstOrNull { !isSpace(it) }?.toInt()?.toChar() ?: return false
+        val last = payload.lastOrNull { !isSpace(it) }?.toInt()?.toChar() ?: return false
+        return (first == '{' && last == '}') || (first == '[' && last == ']')
     }
 
     private fun maybeBase64(payload: ByteArray): ByteArray {
@@ -147,8 +149,10 @@ object Gen3Decoder {
         return ByteArray(pdata.size) { i -> ((pdata[i].toInt() and 0xFF) xor key).toByte() }
     }
 
-    fun decode(payload: ByteArray): Result? {
-        if (looksLikeJson(payload)) return null
+    fun decode(payload: ByteArray): Result? = if (looksLikeJson(payload)) null else decodeBinary(payload)
+
+    /** Розбір без перевірки на JSON — для повідомлень, що лише випадково схожі на нього. */
+    fun decodeBinary(payload: ByteArray): Result? {
         val headers = parseHeaders(payload) ?: return null
         val out = LinkedHashMap<String, Any?>()
         var packs = 0

@@ -1,5 +1,7 @@
 package ua.savosh.ecoflowdiag.ui
 
+import ua.savosh.ecoflowdiag.core.localize
+import ua.savosh.ecoflowdiag.core.tr
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -29,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -47,17 +50,17 @@ fun RawScreen(vm: AppViewModel) {
         topBar = {
             TopAppBar(
                 navigationIcon = {
-                    IconButton(onClick = { vm.back() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад") }
+                    IconButton(onClick = { vm.back() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr("Назад")) }
                 },
                 title = {
                     Column {
-                        Text("Сирі дані", fontWeight = FontWeight.Bold)
-                        Text("${all.size} параметрів", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        FitText(tr("Сирі дані"), fontWeight = FontWeight.Bold)
+                        Text(tr("{0} параметрів", all.size), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 },
                 actions = {
-                    IconButton(onClick = { shareText(context, vm.rawJson(), "EcoFlow ${vm.diagSn} — сирі дані") }) {
-                        Icon(Icons.Filled.Share, contentDescription = "Поділитися JSON")
+                    IconButton(onClick = { shareText(context, vm.rawJson(), tr("EcoFlow {0} — сирі дані", vm.diagSn)) }) {
+                        Icon(Icons.Filled.Share, contentDescription = tr("Поділитися JSON"))
                     }
                 },
             )
@@ -66,12 +69,12 @@ fun RawScreen(vm: AppViewModel) {
         Column(
             Modifier
                 .fillMaxSize()
-                .padding(pad),
+                .formPadding(pad),
         ) {
             OutlinedTextField(
                 value = filter,
                 onValueChange = { filter = it },
-                label = { Text("Пошук: cycles, soh, cellVol, bms_slave…") },
+                label = { Text(tr("Пошук: cycles, soh, cellVol, bms_slave…")) },
                 singleLine = true,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -80,8 +83,8 @@ fun RawScreen(vm: AppViewModel) {
             LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
                 items(rows, key = { it.first }) { (k, v) ->
                     Column(Modifier.padding(vertical = 6.dp)) {
-                        Text(k, fontFamily = Mono, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
-                        Text(v, fontFamily = Mono, fontSize = 13.sp)
+                        Text(k, fontFamily = Mono, fontSize = 12.sp, lineHeight = 16.sp, color = MaterialTheme.colorScheme.primary)
+                        Text(v, fontFamily = Mono, fontSize = 13.sp, lineHeight = 18.sp)
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 }
@@ -110,12 +113,12 @@ fun LogScreen(vm: AppViewModel) {
         topBar = {
             TopAppBar(
                 navigationIcon = {
-                    IconButton(onClick = { vm.back() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад") }
+                    IconButton(onClick = { vm.back() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr("Назад")) }
                 },
-                title = { Text("Журнал підключення", fontWeight = FontWeight.Bold) },
+                title = { FitText(tr("Журнал підключення"), fontWeight = FontWeight.Bold) },
                 actions = {
-                    IconButton(onClick = { shareText(context, vm.logText(), "Power Station Diag — журнал") }) {
-                        Icon(Icons.Filled.Share, contentDescription = "Поділитися журналом")
+                    IconButton(onClick = { shareText(context, vm.logText(), tr("Power Station Diag — журнал")) }) {
+                        Icon(Icons.Filled.Share, contentDescription = tr("Поділитися журналом"))
                     }
                 },
             )
@@ -130,9 +133,10 @@ fun LogScreen(vm: AppViewModel) {
         ) {
             items(vm.log) { line ->
                 Text(
-                    "${line.time}  ${line.text}",
+                    "${line.time}  ${localize(line.text)}",
                     fontFamily = Mono,
                     fontSize = 12.sp,
+                    lineHeight = 16.sp,
                     modifier = Modifier.padding(vertical = 2.dp),
                 )
             }

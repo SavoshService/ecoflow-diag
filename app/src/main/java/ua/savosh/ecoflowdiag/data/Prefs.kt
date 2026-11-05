@@ -1,10 +1,15 @@
 package ua.savosh.ecoflowdiag.data
 
+import ua.savosh.ecoflowdiag.core.tr
 import android.content.Context
 import android.content.SharedPreferences
+import ua.savosh.ecoflowdiag.core.AppLang
 import ua.savosh.ecoflowdiag.core.Article
+import ua.savosh.ecoflowdiag.core.I18n
 import ua.savosh.ecoflowdiag.core.ChecklistItem
 import ua.savosh.ecoflowdiag.core.Json
+import ua.savosh.ecoflowdiag.core.Models
+import ua.savosh.ecoflowdiag.net.EcoflowApi
 import ua.savosh.ecoflowdiag.core.CellSnapshot
 import ua.savosh.ecoflowdiag.core.LogEntry
 import ua.savosh.ecoflowdiag.core.StationLog
@@ -45,7 +50,8 @@ class Prefs(context: Context) {
         set(v) = sp.edit().putString("email", v).apply()
 
     var host: String
-        get() = sp.getString("host", "api.ecoflow.com") ?: "api.ecoflow.com"
+        // Лише сервери EcoFlow: сюди йде пароль, тож адреса зі зміненої копії не повинна спрацювати.
+        get() = sp.getString("host", null)?.takeIf { it in EcoflowApi.HOSTS } ?: EcoflowApi.HOSTS.first()
         set(v) = sp.edit().putString("host", v).apply()
 
     var rememberPassword: Boolean
@@ -77,7 +83,8 @@ class Prefs(context: Context) {
         val list = Json.parseOrNull(text) as? List<*> ?: return emptyList()
         return list.mapNotNull { item ->
             val m = item as? Map<*, *> ?: return@mapNotNull null
-            val sn = m["sn"]?.toString() ?: return@mapNotNull null
+            // Старі записи могли зберегтись із кирилицею замість латиниці: такий номер хмара не впізнає.
+            val sn = m["sn"]?.toString()?.let { Models.normalizeSn(it) }?.takeIf { it.isNotEmpty() } ?: return@mapNotNull null
             StationEntry(
                 sn = sn,
                 note = m["note"]?.toString() ?: "",
@@ -90,7 +97,7 @@ class Prefs(context: Context) {
                 online = m["online"] as? Boolean,
                 tags = (m["tags"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList(),
             )
-        }
+        }.distinctBy { it.sn }
     }
 
     fun saveStations(list: List<StationEntry>) {
@@ -112,13 +119,35 @@ class Prefs(context: Context) {
     }
 
     /** Останній звіт станції: клієнтський (report_) або технічний (reportTech_). */
+    /** Мова застосунку. Хто вже користувався застосунком, лишається з українською; новим — за мовою телефона. */
+    var appLang: AppLang
+        get() {
+            AppLang.fromCode(sp.getString("lang", null))?.let { return it }
+            val first = if (email.isNotBlank() || hasAnyData()) AppLang.UK else AppLang.forSystem()
+            // Запам'ятовуємо одразу: інакше після входу в акаунт новий користувач «ставав» старим і мова перемикалась сама.
+            sp.edit().putString("lang", first.code).apply()
+            return first
+        }
+        set(v) = sp.edit().putString("lang", v.code).apply()
+
+    /** Готові тексти зберігаємо окремо для кожної мови: українська лежить під старими ключами. */
+    private fun langSuffix(): String = if (I18n.current == AppLang.UK) "" else "_" + I18n.current.code
+
+    private fun getLocalized(key: String): String? = sp.getString(key + langSuffix(), null) ?: sp.getString(key, null)
+
     fun saveReport(sn: String, text: String, technical: Boolean = false) =
-        sp.edit().putString(reportKey(sn, technical), text).apply()
+        sp.edit().putString(reportKey(sn, technical) + langSuffix(), text).apply()
 
-    fun loadReport(sn: String, technical: Boolean = false): String? = sp.getString(reportKey(sn, technical), null)
+    fun loadReport(sn: String, technical: Boolean = false): String? = getLocalized(reportKey(sn, technical))
 
-    fun deleteReport(sn: String) =
-        sp.edit().remove(reportKey(sn, false)).remove(reportKey(sn, true)).remove("capTest_$sn").remove("balance_$sn").apply()
+    fun deleteReport(sn: String) {
+        val e = sp.edit()
+        for (key in listOf(reportKey(sn, false), reportKey(sn, true), "capTest_$sn", "balance_$sn")) {
+            e.remove(key)
+            for (l in AppLang.entries) e.remove(key + "_" + l.code)
+        }
+        e.apply()
+    }
 
     private fun reportKey(sn: String, technical: Boolean) = if (technical) "reportTech_$sn" else "report_$sn"
 
@@ -163,9 +192,9 @@ class Prefs(context: Context) {
     }
 
     /** Останній результат тесту реальної ємності станції (текст звіту). */
-    fun saveBalanceCheck(sn: String, text: String) = sp.edit().putString("balance_$sn", text).apply()
+    fun saveBalanceCheck(sn: String, text: String) = sp.edit().putString("balance_$sn" + langSuffix(), text).apply()
 
-    fun loadBalanceCheck(sn: String): String? = sp.getString("balance_$sn", null)
+    fun loadBalanceCheck(sn: String): String? = getLocalized("balance_$sn")
 
     /** Останні отримані напруги груп станції (по батареях), щоб не зникали, коли станція не надіслала список. */
     fun loadLastCells(sn: String): Map<String, CellSnapshot> =
@@ -190,9 +219,9 @@ class Prefs(context: Context) {
         if (all.remove(sn) != null) sp.edit().putString("station_log", Json.stringify(all)).apply()
     }
 
-    fun saveCapTest(sn: String, text: String) = sp.edit().putString("capTest_$sn", text).apply()
+    fun saveCapTest(sn: String, text: String) = sp.edit().putString("capTest_$sn" + langSuffix(), text).apply()
 
-    fun loadCapTest(sn: String): String? = sp.getString("capTest_$sn", null)
+    fun loadCapTest(sn: String): String? = getLocalized("capTest_$sn")
 
     /** Чи сховав користувач демо-станцію зі списку. */
     var demoHidden: Boolean
@@ -253,7 +282,7 @@ class Prefs(context: Context) {
                 completedAt = (m["completedAt"] as? Number)?.toLong(),
                 deviceType = m["deviceType"]?.toString() ?: "",
                 model = m["model"]?.toString() ?: "",
-                clientName = m["clientName"]?.toString() ?: "Невідомо",
+                clientName = m["clientName"]?.toString() ?: tr("Невідомо"),
                 phone = m["phone"]?.toString() ?: "",
                 channel = m["channel"]?.toString() ?: "call",
                 description = m["description"]?.toString() ?: "",
@@ -372,7 +401,7 @@ class Prefs(context: Context) {
                 id = id,
                 createdAt = (m["createdAt"] as? Number)?.toLong() ?: 0L,
                 updatedAt = (m["updatedAt"] as? Number)?.toLong() ?: 0L,
-                section = m["section"]?.toString() ?: "Загальне",
+                section = m["section"]?.toString() ?: tr("Загальне"),
                 subsection = m["subsection"]?.toString() ?: "",
                 title = m["title"]?.toString() ?: "",
                 marking = m["marking"]?.toString() ?: "",
@@ -508,8 +537,10 @@ class Prefs(context: Context) {
         fun put(key: String) { m[key]?.let { e.putString(key, Json.stringify(it)) } }
         put("stations"); put("crm_orders"); put("crm_parts"); put("kb_articles"); put("notes"); put("saved_docs"); put("station_log")
         (m["settings"] as? Map<*, *>)?.let { s ->
-            (s["email"] as? String)?.let { e.putString("email", it) }
-            (s["host"] as? String)?.let { e.putString("host", it) }
+            // Вхід цього телефона не чіпаємо: чужий email зі старої копії при поточному паролі дає «невірний пароль»,
+            // а інший сервер — «станція офлайн».
+            if (email.isBlank()) (s["email"] as? String)?.let { e.putString("email", it) }
+            if (!sp.contains("host")) (s["host"] as? String)?.let { e.putString("host", it) }
             (s["reservePercent"] as? Number)?.let { e.putString("crm_reserve_pct", it.toString()) }
             (s["simpleAccounting"] as? Boolean)?.let { e.putBoolean("crm_simple_acc", it) }
             (s["demoHidden"] as? Boolean)?.let { e.putBoolean("demoHidden", it) }

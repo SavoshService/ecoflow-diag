@@ -27,8 +27,17 @@ object Json {
     @Suppress("UNCHECKED_CAST")
     fun parseObject(text: String): Map<String, Any?>? = parseOrNull(text) as? Map<String, Any?>
 
+    /** Глибше наші дані не бувають: без межі зіпсоване повідомлення могло б покласти застосунок переповненням стека. */
+    private const val MAX_DEPTH = 64
+
     private class Parser(val s: String) {
         var pos = 0
+        private var depth = 0
+
+        private inline fun <T> nested(read: () -> T): T {
+            if (++depth > MAX_DEPTH) throw ParseException("Завелика вкладеність JSON")
+            return read().also { depth-- }
+        }
 
         fun atEnd() = pos >= s.length
 
@@ -40,8 +49,8 @@ object Json {
             skipWs()
             if (atEnd()) throw ParseException("Несподіваний кінець JSON")
             return when (val c = s[pos]) {
-                '{' -> readObject()
-                '[' -> readArray()
+                '{' -> nested { readObject() }
+                '[' -> nested { readArray() }
                 '"' -> readString()
                 't' -> readLiteral("true", true)
                 'f' -> readLiteral("false", false)

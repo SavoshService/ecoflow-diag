@@ -1,5 +1,6 @@
 package ua.savosh.ecoflowdiag.work
 
+import ua.savosh.ecoflowdiag.core.tr
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -18,7 +19,7 @@ object Notifier {
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= 26) {
             nm.createNotificationChannel(
-                NotificationChannel(CHANNEL, "Оновлення застосунку", NotificationManager.IMPORTANCE_DEFAULT),
+                NotificationChannel(CHANNEL, tr("Оновлення застосунку"), NotificationManager.IMPORTANCE_DEFAULT),
             )
         }
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or
@@ -32,8 +33,8 @@ object Notifier {
         val pi = PendingIntent.getActivity(ctx, 0, open, flags)
         val n = NotificationCompat.Builder(ctx, CHANNEL)
             .setSmallIcon(ctx.applicationInfo.icon)
-            .setContentTitle("Доступна версія ${upd.version}")
-            .setContentText(if (upd.notes.isNotBlank()) upd.notes else "Торкніться, щоб оновити")
+            .setContentTitle(tr("Доступна версія {0}", upd.version))
+            .setContentText(if (upd.notes.isNotBlank()) upd.notes else tr("Торкніться, щоб оновити"))
             .setAutoCancel(true)
             .setContentIntent(pi)
             .build()
@@ -47,7 +48,7 @@ object Notifier {
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= 26) {
             nm.createNotificationChannel(
-                NotificationChannel(REMINDER_CHANNEL, "Нагадування", NotificationManager.IMPORTANCE_HIGH),
+                NotificationChannel(REMINDER_CHANNEL, tr("Нагадування"), NotificationManager.IMPORTANCE_HIGH),
             )
         }
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or
@@ -58,8 +59,8 @@ object Notifier {
         val pi = PendingIntent.getActivity(ctx, noteId.toInt(), open, flags)
         val n = NotificationCompat.Builder(ctx, REMINDER_CHANNEL)
             .setSmallIcon(ctx.applicationInfo.icon)
-            .setContentTitle("🔔 Нагадування")
-            .setContentText(title.ifBlank { "Замітка" })
+            .setContentTitle(tr("🔔 Нагадування"))
+            .setContentText(title.ifBlank { tr("Замітка") })
             .setAutoCancel(true)
             .setContentIntent(pi)
             .build()

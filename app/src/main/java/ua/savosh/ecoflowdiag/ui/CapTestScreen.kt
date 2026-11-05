@@ -1,5 +1,6 @@
 package ua.savosh.ecoflowdiag.ui
 
+import ua.savosh.ecoflowdiag.core.tr
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -36,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
@@ -74,25 +76,25 @@ fun CapTestScreen(vm: AppViewModel) {
         topBar = {
             TopAppBar(
                 navigationIcon = {
-                    IconButton(onClick = { vm.back() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад") }
+                    IconButton(onClick = { vm.back() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr("Назад")) }
                 },
                 title = {
                     Column {
-                        Text("Тест реальної ємності", fontWeight = FontWeight.Bold)
-                        Text(vm.diagSn ?: "", fontFamily = Mono, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        FitText(tr("Тест реальної ємності"), fontWeight = FontWeight.Bold)
+                        FitText(vm.diagSn ?: "", fontFamily = Mono, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 },
                 actions = {
                     IconButton(
-                        onClick = { vm.capResultText()?.let { shareText(context, it, "Тест ємності ${vm.diagSn}") } },
+                        onClick = { vm.capResultText()?.let { shareText(context, it, tr("Тест ємності {0}", vm.diagSn)) } },
                         enabled = t != null && t.phase != CapPhase.IDLE,
-                    ) { Icon(Icons.Filled.Share, contentDescription = "Поділитися результатом") }
+                    ) { Icon(Icons.Filled.Share, contentDescription = tr("Поділитися результатом")) }
                 },
             )
         },
     ) { pad ->
         if (t == null) {
-            Text("Спершу відкрийте діагностику станції.", modifier = Modifier.padding(pad).padding(24.dp))
+            Text(tr("Спершу відкрийте діагностику станції."), modifier = Modifier.padding(pad).padding(24.dp))
             return@Scaffold
         }
         LazyColumn(
@@ -105,7 +107,7 @@ fun CapTestScreen(vm: AppViewModel) {
             val warnings = t.warnings()
             if (warnings.isNotEmpty()) {
                 item {
-                    SectionCard("Зверніть увагу") {
+                    SectionCard(tr("Зверніть увагу")) {
                         for (w in warnings) FindingRow(Level.WARN, w)
                     }
                 }
@@ -113,7 +115,7 @@ fun CapTestScreen(vm: AppViewModel) {
             if (t.phase == CapPhase.IDLE) {
                 vm.lastCapTest(t.sn)?.let { last ->
                     item {
-                        SectionCard("Попередній тест цієї станції", collapsible = true, initiallyExpanded = false) {
+                        SectionCard(tr("Попередній тест цієї станції"), collapsible = true, initiallyExpanded = false) {
                             Text(last, style = MaterialTheme.typography.bodySmall, fontFamily = Mono)
                         }
                     }
@@ -121,8 +123,7 @@ fun CapTestScreen(vm: AppViewModel) {
             }
             item {
                 HintLine(
-                    "Енергія рахується за напругою й струмом BMS кожної батареї (разом із додатковими), точність близько ±3–5%. " +
-                        "Поки йде тест, екран не гасне — тримайте телефон на зарядці й не закривайте програму.",
+                    tr("Енергія рахується за напругою й струмом BMS кожної батареї (разом із додатковими), точність близько ±3–5%. Поки йде тест, екран не гасне — тримайте телефон на зарядці й не закривайте програму."),
                 )
             }
         }
@@ -131,10 +132,10 @@ fun CapTestScreen(vm: AppViewModel) {
     if (confirmReset) {
         AlertDialog(
             onDismissRequest = { confirmReset = false },
-            title = { Text("Скасувати тест?") },
-            text = { Text("Набрані дані тесту буде втрачено.") },
-            confirmButton = { TextButton(onClick = { vm.capReset(); confirmReset = false }) { Text("Скасувати тест") } },
-            dismissButton = { TextButton(onClick = { confirmReset = false }) { Text("Продовжити") } },
+            title = { Text(tr("Скасувати тест?")) },
+            text = { DialogText(tr("Набрані дані тесту буде втрачено.")) },
+            confirmButton = { TextButton(onClick = { vm.capReset(); confirmReset = false }) { Text(tr("Скасувати тест")) } },
+            dismissButton = { TextButton(onClick = { confirmReset = false }) { Text(tr("Продовжити")) } },
         )
     }
 }
@@ -142,7 +143,7 @@ fun CapTestScreen(vm: AppViewModel) {
 /** Живі показники батареї. */
 @Composable
 private fun LiveCard(vm: AppViewModel, t: CapacityTest, now: Long) {
-    SectionCard("Зараз") {
+    SectionCard(tr("Зараз")) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 t.soc?.let { "${fmt0(it)}%" } ?: "—",
@@ -154,10 +155,10 @@ private fun LiveCard(vm: AppViewModel, t: CapacityTest, now: Long) {
                 val w = t.batteryW
                 Text(
                     when {
-                        w == null -> "немає даних"
-                        w > 5 -> "заряд +${fmt0(w)} Вт"
-                        w < -5 -> "розряд ${fmt0(-w)} Вт"
-                        else -> "без струму"
+                        w == null -> tr("немає даних")
+                        w > 5 -> tr("заряд +{0} Вт", fmt0(w))
+                        w < -5 -> tr("розряд {0} Вт", fmt0(-w))
+                        else -> tr("без струму")
                     },
                     style = MaterialTheme.typography.titleMedium,
                     color = when {
@@ -168,7 +169,7 @@ private fun LiveCard(vm: AppViewModel, t: CapacityTest, now: Long) {
                     },
                 )
                 Text(
-                    "${t.batteryV?.let { fmt1(it) + " В" } ?: "—"} · ${t.batteryA?.let { fmt1(it) + " А" } ?: "—"}",
+                    "${t.batteryV?.let { fmt1(it) + tr(" В") } ?: "—"} · ${t.batteryA?.let { fmt1(it) + tr(" А") } ?: "—"}",
                     fontFamily = Mono,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -179,10 +180,10 @@ private fun LiveCard(vm: AppViewModel, t: CapacityTest, now: Long) {
         val age = if (t.lastDataMs > 0) (now - t.lastDataMs) / 1000 else -1
         Text(
             when {
-                !vm.diagConnected -> "Немає зв'язку з хмарою — перепідключення…"
-                age < 0 -> "Очікування даних від станції…"
-                age < 90 -> "Дані оновлено $age с тому"
-                else -> "Дані не надходять ${age / 60} хв"
+                !vm.diagConnected -> tr("Немає зв'язку з хмарою — перепідключення…")
+                age < 0 -> tr("Очікування даних від станції…")
+                age < 90 -> tr("Дані оновлено {0} с тому", age)
+                else -> tr("Дані не надходять {0} хв", age / 60)
             },
             style = MaterialTheme.typography.bodySmall,
             color = if (age >= 90 || !vm.diagConnected) levelColor(Level.WARN) else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -194,87 +195,87 @@ private fun LiveCard(vm: AppViewModel, t: CapacityTest, now: Long) {
 @Composable
 private fun StageCard(vm: AppViewModel, t: CapacityTest, now: Long, onCancel: () -> Unit) {
     when (t.phase) {
-        CapPhase.IDLE -> SectionCard("Підготовка") {
-            Step(1, "У застосунку EcoFlow виставте ліміт заряду 100% і нижній ліміт розряду 0% — інакше станція зупиниться раніше, і тест покаже меншу ємність.")
-            Step(2, "Розрядіть станцію до 0% (до автовимкнення), потім увімкніть її знову, щоб вона була онлайн.")
-            Step(3, "Підключіть станцію до мережі 220 В на заряд і натисніть «Старт етапу 1».")
-            Step(4, "Тримайте телефон на зарядці з відкритою програмою: тест триває кілька годин.")
+        CapPhase.IDLE -> SectionCard(tr("Підготовка")) {
+            Step(1, tr("У застосунку EcoFlow виставте ліміт заряду 100% і нижній ліміт розряду 0% — інакше станція зупиниться раніше, і тест покаже меншу ємність."))
+            Step(2, tr("Розрядіть станцію до 0% (до автовимкнення), потім увімкніть її знову, щоб вона була онлайн."))
+            Step(3, tr("Підключіть станцію до мережі 220 В на заряд і натисніть «Старт етапу 1»."))
+            Step(4, tr("Тримайте телефон на зарядці з відкритою програмою: тест триває кілька годин."))
             Spacer(Modifier.height(10.dp))
-            Button(onClick = { vm.capStartCharge() }, modifier = Modifier.fillMaxWidth()) { Text("Старт етапу 1 — заряд") }
+            Button(onClick = { vm.capStartCharge() }, modifier = Modifier.fillMaxWidth()) { Text(tr("Старт етапу 1 — заряд")) }
         }
 
-        CapPhase.CHARGE -> SectionCard("Етап 1 — заряд") {
-            Text("Станція заряджається. Тест сам помітить, коли заряд дійде до 100% і струм упаде.", style = MaterialTheme.typography.bodyMedium)
+        CapPhase.CHARGE -> SectionCard(tr("Етап 1 — заряд")) {
+            Text(tr("Станція заряджається. Тест сам помітить, коли заряд дійде до 100% і струм упаде."), style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(8.dp))
             StageProgress(t.charge, t, now, inbound = true)
-            if (t.autoDone) DoneHint("Схоже, станція зарядилась повністю. Натисніть «Завершити етап 1».")
+            if (t.autoDone) DoneHint(tr("Схоже, станція зарядилась повністю. Натисніть «Завершити етап 1»."))
             Spacer(Modifier.height(10.dp))
-            Button(onClick = { vm.capFinishCharge() }, modifier = Modifier.fillMaxWidth()) { Text("Завершити етап 1") }
-            TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("Скасувати тест") }
+            Button(onClick = { vm.capFinishCharge() }, modifier = Modifier.fillMaxWidth()) { Text(tr("Завершити етап 1")) }
+            TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text(tr("Скасувати тест")) }
         }
 
-        CapPhase.CHARGE_DONE -> SectionCard("Етап 1 завершено") {
-            BigResult("У батарею зайшло", "≈${fmt0(t.charge.wh)} Вт·год", "${fmt1(t.charge.ah)} А·год за ${CapacityTest.durationText(t.charge.durationMs)}")
+        CapPhase.CHARGE_DONE -> SectionCard(tr("Етап 1 завершено")) {
+            BigResult(tr("У батарею зайшло"), tr("≈{0} Вт·год", fmt0(t.charge.wh)), tr("{0} А·год за {1}", fmt1(t.charge.ah), CapacityTest.durationText(t.charge.durationMs)))
             Spacer(Modifier.height(10.dp))
-            Text("Етап 2 — фінальна перевірка розрядом", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-            Step(1, "Відключіть станцію від заряду.")
-            Step(2, "Підключіть навантаження (лампи, обігрівач тощо) приблизно на 300–1000 Вт — не більше номіналу інвертора. Не лишайте обігрівач без нагляду.")
-            Step(3, "Натисніть «Старт етапу 2». Тест закінчиться, коли станція розрядиться до 0%.")
+            Text(tr("Етап 2 — фінальна перевірка розрядом"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            Step(1, tr("Відключіть станцію від заряду."))
+            Step(2, tr("Підключіть навантаження (лампи, обігрівач тощо) приблизно на 300–1000 Вт — не більше номіналу інвертора. Не лишайте обігрівач без нагляду."))
+            Step(3, tr("Натисніть «Старт етапу 2». Тест закінчиться, коли станція розрядиться до 0%."))
             Spacer(Modifier.height(10.dp))
-            Button(onClick = { vm.capStartDischarge() }, modifier = Modifier.fillMaxWidth()) { Text("Старт етапу 2 — розряд") }
-            TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("Скасувати тест") }
+            Button(onClick = { vm.capStartDischarge() }, modifier = Modifier.fillMaxWidth()) { Text(tr("Старт етапу 2 — розряд")) }
+            TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text(tr("Скасувати тест")) }
         }
 
-        CapPhase.DISCHARGE -> SectionCard("Етап 2 — розряд") {
-            Text("Станція віддає енергію в навантаження. Тест закінчиться на 0%.", style = MaterialTheme.typography.bodyMedium)
+        CapPhase.DISCHARGE -> SectionCard(tr("Етап 2 — розряд")) {
+            Text(tr("Станція віддає енергію в навантаження. Тест закінчиться на 0%."), style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(8.dp))
             StageProgress(t.discharge, t, now, inbound = false)
             val stale = t.lastDataMs > 0 && now - t.lastDataMs > 180_000
-            if (t.autoDone) DoneHint("Станція розрядилась до 0%. Натисніть «Завершити етап 2».")
-            else if (stale) DoneHint("Дані не надходять кілька хвилин. Якщо станція вимкнулась на 0% — натисніть «Завершити етап 2».")
+            if (t.autoDone) DoneHint(tr("Станція розрядилась до 0%. Натисніть «Завершити етап 2»."))
+            else if (stale) DoneHint(tr("Дані не надходять кілька хвилин. Якщо станція вимкнулась на 0% — натисніть «Завершити етап 2»."))
             Spacer(Modifier.height(10.dp))
-            Button(onClick = { vm.capFinishDischarge() }, modifier = Modifier.fillMaxWidth()) { Text("Завершити етап 2") }
-            TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("Скасувати тест") }
+            Button(onClick = { vm.capFinishDischarge() }, modifier = Modifier.fillMaxWidth()) { Text(tr("Завершити етап 2")) }
+            TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text(tr("Скасувати тест")) }
         }
 
-        CapPhase.DONE -> SectionCard("Результат") {
+        CapPhase.DONE -> SectionCard(tr("Результат")) {
             val m = t.measuredWh
             if (m == null) {
-                Text("Розряд не набрав енергії — результату немає. Перевірте, що станція справді розряджалась.", style = MaterialTheme.typography.bodyMedium)
+                Text(tr("Розряд не набрав енергії — результату немає. Перевірте, що станція справді розряджалась."), style = MaterialTheme.typography.bodyMedium)
             } else {
                 val soh = t.sohMeasured
                 // Та сама шкала, що й в оцінці батареї та звітах (Health).
                 val grade = Health.of(soh)
                 val lv = grade?.level ?: Level.UNKNOWN
-                val base = t.designAh?.let { "${fmt1(it)} А·год" } ?: t.designWh?.let { "${fmt0(it)} Вт·год" }
+                val base = t.designAh?.let { tr("{0} А·год", fmt1(it)) } ?: t.designWh?.let { tr("{0} Вт·год", fmt0(it)) }
                 BigResult(
-                    "Реальна ємність",
-                    "≈${fmt0(m)} Вт·год",
-                    "${fmt1(t.discharge.ah)} А·год" + (if (soh != null && base != null) " — ${fmt0(soh)}% від номіналу BMS ($base)" else ""),
+                    tr("Реальна ємність"),
+                    tr("≈{0} Вт·год", fmt0(m)),
+                    tr("{0} А·год", fmt1(t.discharge.ah)) + (if (soh != null && base != null) tr(" — {0}% від номіналу BMS ({1})", fmt0(soh), base) else ""),
                 )
                 Spacer(Modifier.height(6.dp))
                 LevelChip(lv, if (grade != null && soh != null) "${grade.chip} · ${fmt0(soh)}%" else lv.statusTitle)
                 Spacer(Modifier.height(10.dp))
-                KeyValue("Заряд (етап 1)", "≈${fmt0(t.charge.wh)} Вт·год")
-                KeyValue("Розряд (етап 2)", "≈${fmt0(t.discharge.wh)} Вт·год")
-                t.passportWh?.let { KeyValue("За паспортом", "${fmt0(it)} Вт·год") }
-                t.extrapolatedWh?.let { KeyValue("Оцінка на повні 100%", "≈${fmt0(it)} Вт·год") }
-                t.roundTrip?.let { KeyValue("Ефективність циклу", "${fmt0(it)}%") }
-                KeyValue("Тривалість розряду", CapacityTest.durationText(t.discharge.durationMs))
+                KeyValue(tr("Заряд (етап 1)"), tr("≈{0} Вт·год", fmt0(t.charge.wh)))
+                KeyValue(tr("Розряд (етап 2)"), tr("≈{0} Вт·год", fmt0(t.discharge.wh)))
+                t.passportWh?.let { KeyValue(tr("За паспортом"), tr("{0} Вт·год", fmt0(it))) }
+                t.extrapolatedWh?.let { KeyValue(tr("Оцінка на повні 100%"), tr("≈{0} Вт·год", fmt0(it))) }
+                t.roundTrip?.let { KeyValue(tr("Ефективність циклу"), "${fmt0(it)}%") }
+                KeyValue(tr("Тривалість розряду"), CapacityTest.durationText(t.discharge.durationMs))
             }
             Spacer(Modifier.height(10.dp))
-            OutlinedButton(onClick = { vm.capReset() }, modifier = Modifier.fillMaxWidth()) { Text("Новий тест") }
+            OutlinedButton(onClick = { vm.capReset() }, modifier = Modifier.fillMaxWidth()) { Text(tr("Новий тест")) }
         }
     }
 }
 
 @Composable
 private fun StageProgress(st: CapStage, t: CapacityTest, now: Long, inbound: Boolean) {
-    KeyValue(if (inbound) "Зайшло в батарею" else "Віддано батареєю", "≈${fmt0(st.wh)} Вт·год")
-    KeyValue("Заряд", "${fmt1(st.ah)} А·год")
+    KeyValue(if (inbound) tr("Зайшло в батарею") else tr("Віддано батареєю"), tr("≈{0} Вт·год", fmt0(st.wh)))
+    KeyValue(tr("Заряд"), tr("{0} А·год", fmt1(st.ah)))
     KeyValue("SOC", "${st.socStart?.let { fmt0(it) } ?: "?"}% → ${t.soc?.let { fmt0(it) } ?: "?"}%")
-    KeyValue("Минуло", CapacityTest.durationText(if (st.startMs > 0) now - st.startMs else 0))
-    if (st.stationWh > 0) KeyValue(if (inbound) "З мережі (з втратами)" else "На виходах (з втратами)", "≈${fmt0(st.stationWh)} Вт·год")
+    KeyValue(tr("Минуло"), CapacityTest.durationText(if (st.startMs > 0) now - st.startMs else 0))
+    if (st.stationWh > 0) KeyValue(if (inbound) tr("З мережі (з втратами)") else tr("На виходах (з втратами)"), tr("≈{0} Вт·год", fmt0(st.stationWh)))
 }
 
 @Composable

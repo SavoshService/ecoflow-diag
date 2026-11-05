@@ -1,13 +1,15 @@
 package ua.savosh.ecoflowdiag.ui
 
+import ua.savosh.ecoflowdiag.core.tr
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -31,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -47,10 +50,10 @@ fun ReportScreen(vm: AppViewModel) {
             TopAppBar(
                 navigationIcon = {
                     IconButton(onClick = { if (kind != null) vm.backFromReportEditor() else vm.back() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr("Назад"))
                     }
                 },
-                title = { Text("Звіт", fontWeight = FontWeight.Bold) },
+                title = { FitText(tr("Звіт"), fontWeight = FontWeight.Bold) },
             )
         },
     ) { pad ->
@@ -60,27 +63,27 @@ fun ReportScreen(vm: AppViewModel) {
                 Modifier.fillMaxSize().padding(pad).verticalScroll(rememberScrollState()).padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text("Оберіть вид звіту", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(tr("Оберіть вид звіту"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Row(Modifier.height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     ReportTile(
-                        "🟢 Короткий",
-                        "Зрозумілий клієнту: головні показники й стан",
-                        Modifier.weight(1f),
+                        tr("📄 Короткий"),
+                        tr("Зрозумілий клієнту: головні показники й стан"),
+                        Modifier.weight(1f).fillMaxHeight(),
                     ) { vm.chooseReport(false) }
                     ReportTile(
-                        "🔵 Розширений",
-                        "Повна технічна картина станції",
-                        Modifier.weight(1f),
+                        tr("📑 Розширений"),
+                        tr("Повна технічна картина станції"),
+                        Modifier.weight(1f).fillMaxHeight(),
                     ) { vm.chooseReport(true) }
                 }
                 Text(
-                    "Після вибору звіт відкриється для редагування — виправиш під себе й збережеш або поділишся.",
+                    tr("Після вибору звіт відкриється для редагування — виправиш під себе й збережеш або поділишся."),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
                 if (vm.savedReportDocs.isNotEmpty()) {
                     Spacer(Modifier.height(8.dp))
-                    Text("Збережені звіти", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Text(tr("Збережені звіти"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                     for (doc in vm.savedReportDocs) {
                         Card(
                             shape = RoundedCornerShape(14.dp),
@@ -95,7 +98,7 @@ fun ReportScreen(vm: AppViewModel) {
                                     Modifier.weight(1f).padding(vertical = 6.dp),
                                 ) {
                                     Text(
-                                        "${if (doc.extended) "🔵 Розширений" else "🟢 Короткий"} · ${doc.model ?: doc.sn}",
+                                        "${if (doc.extended) tr("📑 Розширений") else tr("📄 Короткий")} · ${doc.model ?: doc.sn}",
                                         fontWeight = FontWeight.SemiBold,
                                         style = MaterialTheme.typography.bodyMedium,
                                     )
@@ -105,8 +108,8 @@ fun ReportScreen(vm: AppViewModel) {
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
-                                TextButton(onClick = { vm.openSavedReport(doc) }) { Text("Відкрити") }
-                                TextButton(onClick = { vm.deleteSavedReport(doc.id) }) { Text("Видалити") }
+                                TextButton(onClick = { vm.openSavedReport(doc) }) { Text(tr("Відкрити")) }
+                                TextButton(onClick = { vm.deleteSavedReport(doc.id) }) { Text(tr("Видалити")) }
                             }
                         }
                     }
@@ -115,11 +118,11 @@ fun ReportScreen(vm: AppViewModel) {
         } else {
             // ---- Редактор звіту (як блокнот) ----
             Column(
-                Modifier.fillMaxSize().padding(pad).imePadding().padding(16.dp),
+                Modifier.fillMaxSize().formPadding(pad).padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Text(
-                    "Відредагуй звіт під себе (впиши назву сервісу, висновок тощо), тоді збережи або поділись.",
+                    tr("Відредагуй звіт під себе (впиши назву сервісу, висновок тощо), тоді збережи або поділись."),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 OutlinedTextField(
@@ -132,12 +135,12 @@ fun ReportScreen(vm: AppViewModel) {
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                     Button(onClick = { vm.saveReportDraft() }, modifier = Modifier.weight(1f)) {
-                        Text("💾 Зберегти")
+                        FitText(tr("💾 Зберегти"))
                     }
                     OutlinedButton(
-                        onClick = { shareText(ctx, vm.reportDraft, "Звіт про стан станції") },
+                        onClick = { shareText(ctx, vm.reportDraft, tr("Звіт про стан станції")) },
                         modifier = Modifier.weight(1f),
-                    ) { Text("📤 Поділитись") }
+                    ) { FitText(tr("📤 Поділитись")) }
                 }
             }
         }
@@ -151,12 +154,12 @@ private fun ReportTile(title: String, subtitle: String, modifier: Modifier = Mod
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
         modifier = modifier,
     ) {
-        Column(Modifier.fillMaxWidth().padding(16.dp)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Column(Modifier.fillMaxSize().padding(16.dp)) {
+            FitText(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(6.dp))
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(subtitle, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Spacer(Modifier.height(12.dp))
-            Button(onClick = onClick, modifier = Modifier.fillMaxWidth()) { Text("Обрати") }
+            Button(onClick = onClick, modifier = Modifier.fillMaxWidth()) { FitText(tr("Обрати")) }
         }
     }
 }

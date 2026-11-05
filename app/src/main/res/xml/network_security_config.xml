@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Лише HTTPS і лише системні сертифікати: підсунутий у телефон чужий сертифікат не дасть підслухати зв'язок.
+     debug-overrides діють лише у debug-збірках (для перевірки на імітаторі хмари), у релізі їх немає. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    <debug-overrides>
+        <trust-anchors>
+            <certificates src="user" />
+        </trust-anchors>
+    </debug-overrides>
+</network-security-config>

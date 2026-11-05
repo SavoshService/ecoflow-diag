@@ -1,11 +1,13 @@
 package ua.savosh.ecoflowdiag.core
 
 /** Покоління протоколу EcoFlow. */
-enum class Generation(val title: String) {
-    GEN1("1-ше покоління (JSON: Delta Max / Pro / Mini, River)"),
-    GEN2("2-ге покоління (JSON: Delta 2 / 2 Max, River 2)"),
-    GEN3("3-тє покоління (protobuf: Delta 3, River 3, Delta Pro 3)"),
-    UNKNOWN("ще не визначено"),
+enum class Generation(private val titleKey: String) {
+    GEN1(tk("1-ше покоління (JSON: Delta Max / Pro / Mini, River)")),
+    GEN2(tk("2-ге покоління (JSON: Delta 2 / 2 Max, River 2)")),
+    GEN3(tk("3-тє покоління (protobuf: Delta 3, River 3, Delta Pro 3)")),
+    UNKNOWN(tk("ще не визначено"));
+
+    val title: String get() = tr(titleKey)
 }
 
 /** Результат розбору одного MQTT-повідомлення. */
@@ -34,25 +36,27 @@ object MessageDecoder {
 
     fun decode(topic: String, payload: ByteArray): DecodedMessage? {
         if (payload.isEmpty()) return null
-        return if (Gen3Decoder.looksLikeJson(payload)) decodeJson(topic, payload) else decodeProto(payload)
+        if (!Gen3Decoder.looksLikeJson(payload)) return decodeProto(payload)
+        // Двійкове повідомлення може випадково починатись і закінчуватись дужками: тоді це не JSON.
+        return decodeJson(topic, payload).takeIf { it?.kind != "json?" } ?: decodeProto(payload)
     }
 
     private fun decodeProto(payload: ByteArray): DecodedMessage? {
-        val r = Gen3Decoder.decode(payload) ?: return DecodedMessage(
-            emptyMap(), null, "binary", "Нерозпізнане двійкове повідомлення (${payload.size} байт)",
+        val r = Gen3Decoder.decodeBinary(payload) ?: return DecodedMessage(
+            emptyMap(), null, "binary", tr("Нерозпізнане двійкове повідомлення ({0} байт)", payload.size),
         )
         return DecodedMessage(
             r.params,
             if (r.params.isNotEmpty()) true else null,
             "protobuf",
-            "protobuf: ${r.headers} блок(и) [${r.description}], BMS-пакетів: ${r.bmsPacks}",
+            tr("protobuf: {0} блок(и) [{1}], BMS-пакетів: {2}", r.headers, r.description, r.bmsPacks),
         )
     }
 
     @Suppress("UNCHECKED_CAST")
     private fun decodeJson(topic: String, payload: ByteArray): DecodedMessage? {
         val text = payload.toString(Charsets.UTF_8)
-        val obj = Json.parseObject(text) ?: return DecodedMessage(emptyMap(), null, "json?", "Некоректний JSON")
+        val obj = Json.parseObject(text) ?: return DecodedMessage(emptyMap(), null, "json?", tr("Некоректний JSON"))
 
         // Відповідь на запит latestQuotas: {"operateType":"latestQuotas","data":{"online":1,"quotaMap":{...}}}
         val data = obj["data"] as? Map<String, Any?>
@@ -60,16 +64,16 @@ object MessageDecoder {
             val online = toBool(data["online"])
             val quota = data["quotaMap"] as? Map<String, Any?> ?: emptyMap()
             val note = when {
-                online == false -> "Хмара EcoFlow: станція з цим SN для цього акаунта ОФЛАЙН (online=0)"
-                quota.isEmpty() -> "Повний знімок даних порожній (online=${data["online"]})"
-                else -> "Повний знімок даних: ${quota.size} параметрів"
+                online == false -> tr("Хмара EcoFlow: станція з цим SN для цього акаунта ОФЛАЙН (online=0)")
+                quota.isEmpty() -> tr("Повний знімок даних порожній (online={0})", data["online"])
+                else -> tr("Повний знімок даних: {0} параметрів", quota.size)
             }
             return DecodedMessage(flatten(quota), online, "latestQuotas", note)
         }
 
         val message = obj["message"] as? String
         if (message != null && message.contains("not online", ignoreCase = true)) {
-            return DecodedMessage(emptyMap(), false, "status", "Хмара EcoFlow: станція офлайн («$message»)")
+            return DecodedMessage(emptyMap(), false, "status", tr("Хмара EcoFlow: станція офлайн («{0}»)", message))
         }
 
         // Повідомлення про статус онлайн: {"params":{"status":1}}
@@ -92,7 +96,7 @@ object MessageDecoder {
         val code = obj["code"]?.toString()
         return DecodedMessage(
             emptyMap(), null, "other",
-            if (message != null) "Відповідь: $message${if (code != null) " (код $code)" else ""}" else null,
+            if (message != null) tr("Відповідь: {0}{1}", message, if (code != null) tr(" (код {0})", code) else "") else null,
         )
     }
 
@@ -151,6 +155,8 @@ class QuotaStore {
                 if (online == null) online = true
             }
             msg.online?.let { online = it }
+            // Живе повідомлення станції доводить, що вона онлайн, навіть якщо хмара щойно казала інакше.
+            if (msg.kind == "params" && msg.params.isNotEmpty()) online = true
             messages++
         }
     }
@@ -165,6 +171,14 @@ class QuotaStore {
     }
 
     fun size(): Int = synchronized(lock) { map.size }
+
+    /** Чи є вже дані батареї. Інші параметри (наприклад, потужність виходів) можуть прийти першими. */
+    fun hasBattery(): Boolean = synchronized(lock) { Analyzer.hasBatteryData(map.keys) }
+
+    /** Забути відповідь хмари «офлайн» — наприклад, перед запитом через інший сервер. */
+    fun forgetOnline() {
+        synchronized(lock) { online = null }
+    }
 
     companion object {
         fun detectGeneration(keys: Collection<String>): Generation {

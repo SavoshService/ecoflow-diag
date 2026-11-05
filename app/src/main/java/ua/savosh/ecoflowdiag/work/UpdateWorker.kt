@@ -1,5 +1,6 @@
 package ua.savosh.ecoflowdiag.work
 
+import ua.savosh.ecoflowdiag.core.I18n
 import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
@@ -11,6 +12,7 @@ import ua.savosh.ecoflowdiag.net.Updater
 /** Фонова перевірка оновлень: якщо є новіша версія і про неї ще не сповіщали — показати сповіщення. */
 class UpdateWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
     override suspend fun doWork(): Result {
+        I18n.lang = Prefs(applicationContext).appLang
         val upd = withContext(Dispatchers.IO) { Updater.check() } ?: return Result.success()
         val prefs = Prefs(applicationContext)
         if (prefs.lastNotifiedVersion == upd.version) return Result.success()

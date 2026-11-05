@@ -65,7 +65,7 @@ object ProtoWire {
         }
 
         fun readBytes(len: Int): ByteArray? {
-            if (len < 0 || pos + len > data.size) return null
+            if (len < 0 || len > data.size - pos) return null
             val out = data.copyOfRange(pos, pos + len)
             pos += len
             return out
@@ -88,7 +88,7 @@ object ProtoWire {
                 1 -> out.add(ProtoField(number, wire, r.readFixed64() ?: return null, null))
                 2 -> {
                     val len = r.readVarint() ?: return null
-                    if (len > Int.MAX_VALUE) return null
+                    if (len < 0 || len > Int.MAX_VALUE) return null
                     out.add(ProtoField(number, wire, 0, r.readBytes(len.toInt()) ?: return null))
                 }
                 5 -> out.add(ProtoField(number, wire, r.readFixed32() ?: return null, null))

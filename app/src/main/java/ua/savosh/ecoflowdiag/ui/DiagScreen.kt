@@ -1,8 +1,11 @@
 package ua.savosh.ecoflowdiag.ui
 
+import ua.savosh.ecoflowdiag.core.localize
+import ua.savosh.ecoflowdiag.core.tr
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -33,7 +36,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
@@ -55,6 +58,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ua.savosh.ecoflowdiag.core.Analyzer.energyString
@@ -75,7 +79,7 @@ import ua.savosh.ecoflowdiag.core.StationReport
 
 private class CodeEdit(val key: String, val title: String, val value: String)
 
-private val TABS = listOf("Огляд", "Монітор", "Коди", "Керування")
+private val TABS get() = listOf(tr("Огляд"), tr("Монітор"), tr("Коди"), tr("Керування"))
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -101,28 +105,30 @@ fun DiagScreen(vm: AppViewModel) {
         topBar = {
             TopAppBar(
                 navigationIcon = {
-                    IconButton(onClick = { vm.back() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад") }
+                    IconButton(onClick = { vm.back() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr("Назад")) }
                 },
                 title = {
                     Column {
-                        Text(r?.model ?: "Діагностика", fontWeight = FontWeight.Bold)
-                        Text(vm.diagSn ?: "", fontFamily = Mono, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        FitText(r?.model ?: tr("Діагностика"), fontWeight = FontWeight.Bold)
+                        FitText(vm.diagSn ?: "", fontFamily = Mono, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 },
                 actions = {
-                    IconButton(onClick = { vm.refreshNow() }) { Icon(Icons.Filled.Refresh, contentDescription = "Оновити") }
-                    IconButton(onClick = { vm.openReport() }, enabled = r != null) {
-                        Icon(Icons.Filled.Share, contentDescription = "Звіт")
-                    }
-                    Box {
-                        IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "Ще") }
-                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                            DropdownMenuItem(text = { Text("🔋 Тест реальної ємності") }, onClick = { menu = false; vm.openCapTest() }, enabled = r != null)
-                            DropdownMenuItem(text = { Text("⚖️ Перевірка балансу") }, onClick = { menu = false; vm.openBalance() }, enabled = r != null)
-                            DropdownMenuItem(text = { Text("Сирі дані (усі параметри)") }, onClick = { menu = false; vm.openRaw() })
-                            DropdownMenuItem(text = { Text("Журнал підключення") }, onClick = { menu = false; vm.openLog() })
-                            if (vm.codeHistory.isNotEmpty()) {
-                                DropdownMenuItem(text = { Text("Очистити історію кодів") }, onClick = { menu = false; confirmClear = true })
+                    CompactActions {
+                        IconButton(onClick = { vm.refreshNow() }) { Icon(Icons.Filled.Refresh, contentDescription = tr("Оновити")) }
+                        IconButton(onClick = { vm.openReport() }, enabled = r != null) {
+                            Icon(Icons.Filled.Share, contentDescription = tr("Звіт"))
+                        }
+                        Box {
+                            IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, contentDescription = tr("Ще")) }
+                            DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                                DropdownMenuItem(text = { Text(tr("🔋 Тест реальної ємності")) }, onClick = { menu = false; vm.openCapTest() }, enabled = r != null)
+                                DropdownMenuItem(text = { Text(tr("⚖️ Перевірка балансу")) }, onClick = { menu = false; vm.openBalance() }, enabled = r != null)
+                                DropdownMenuItem(text = { Text(tr("Сирі дані (усі параметри)")) }, onClick = { menu = false; vm.openRaw() })
+                                DropdownMenuItem(text = { Text(tr("Журнал підключення")) }, onClick = { menu = false; vm.openLog() })
+                                if (vm.codeHistory.isNotEmpty()) {
+                                    DropdownMenuItem(text = { Text(tr("Очистити історію кодів")) }, onClick = { menu = false; confirmClear = true })
+                                }
                             }
                         }
                     }
@@ -132,9 +138,12 @@ fun DiagScreen(vm: AppViewModel) {
     ) { pad ->
         Column(Modifier.fillMaxSize().padding(pad)) {
             if (r != null) {
-                ScrollableTabRow(selectedTabIndex = tab, edgePadding = 12.dp) {
+                // Усі вкладки видно одразу: у прокручуваному рядку остання обрізалась і здавалась зламаною.
+                TabRow(selectedTabIndex = tab) {
                     TABS.forEachIndexed { i, title ->
-                        Tab(selected = tab == i, onClick = { tab = i }, text = { Text(title) })
+                        Tab(selected = tab == i, onClick = { tab = i }) {
+                            FitText(title, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(horizontal = 4.dp, vertical = 14.dp))
+                        }
                     }
                 }
             }
@@ -163,14 +172,14 @@ fun DiagScreen(vm: AppViewModel) {
     if (confirmClear) {
         AlertDialog(
             onDismissRequest = { confirmClear = false },
-            title = { Text("Очистити історію кодів?") },
-            text = { Text("Уся збережена історія появи/зникнення кодів цієї станції буде стерта безповоротно. Відновити її не вийде.") },
+            title = { Text(tr("Очистити історію кодів?")) },
+            text = { DialogText(tr("Уся збережена історія появи/зникнення кодів цієї станції буде стерта безповоротно. Відновити її не вийде.")) },
             confirmButton = {
                 TextButton(onClick = { confirmClear = false; vm.clearCodeHistory() }) {
-                    Text("Стерти", color = MaterialTheme.colorScheme.error)
+                    Text(tr("Стерти"), color = MaterialTheme.colorScheme.error)
                 }
             },
-            dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Скасувати") } },
+            dismissButton = { TextButton(onClick = { confirmClear = false }) { Text(tr("Скасувати")) } },
         )
     }
 }
@@ -179,28 +188,29 @@ fun DiagScreen(vm: AppViewModel) {
 
 @Composable
 private fun ConnectingCard(vm: AppViewModel) {
-    SectionCard("Підключення") {
+    SectionCard(tr("Підключення")) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (vm.diagBusy) {
                 CircularProgressIndicator(Modifier.size(22.dp), strokeWidth = 2.dp)
                 Spacer(Modifier.width(12.dp))
             }
             Text(
-                vm.diagStatus.ifBlank { "Підготовка…" },
+                vm.diagStatus.ifBlank { tr("Підготовка…") },
                 style = MaterialTheme.typography.bodyLarge,
                 color = if (vm.diagError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
             )
         }
-        if (vm.diagError) {
+        // Кнопки є завжди, коли нічого не крутиться: людина не повинна лишатись на порожньому екрані.
+        if (vm.diagError || !vm.diagBusy) {
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { vm.retryDiag() }) { Text("Повторити") }
-                OutlinedButton(onClick = { vm.openLog() }) { Text("Журнал") }
+                Button(onClick = { vm.retryDiag() }) { FitText(tr("Повторити")) }
+                OutlinedButton(onClick = { vm.openLog() }) { FitText(tr("Журнал")) }
             }
         }
         if (vm.messageCount > 0) {
             Spacer(Modifier.height(8.dp))
-            HintText("Отримано повідомлень: ${vm.messageCount}")
+            HintText(tr("Отримано повідомлень: {0}", vm.messageCount))
         }
     }
 }
@@ -211,16 +221,16 @@ private fun ConnectingCard(vm: AppViewModel) {
 private fun OverviewTab(vm: AppViewModel, r: StationReport, onEditCode: (Indicator) -> Unit) {
     val ctx = LocalContext.current
     if (vm.isDemo) {
-        SectionCard("🧪 Демо станція") {
+        SectionCard(tr("🔬 Демо станція")) {
             Text(
-                "Це несправжні дані, щоб роздивитись програму без реальної станції. Числа самі трохи «оживають».",
+                tr("Це несправжні дані, щоб роздивитись програму без реальної станції. Числа самі трохи «оживають»."),
                 style = MaterialTheme.typography.bodyMedium,
             )
             Spacer(Modifier.height(8.dp))
-            HintText("Вкладки вгорі: «Огляд» — головне про батарею; «Монітор» — графік заряду/розряду наживо; «Коди» — помилки BMS, тисни «❓ Що це за помилка» для пояснення; «Керування» — вмик/вимк виходів. Унизу кнопка «🔋 Тест ємності».")
+            HintText(tr("Вкладки вгорі: «Огляд» — головне про батарею; «Монітор» — графік заряду/розряду наживо; «Коди» — помилки BMS, тисни «❓ Що це за помилка» для пояснення; «Керування» — вмик/вимк виходів. Унизу кнопка «🔋 Тест ємності»."))
         }
     }
-    SectionCard("Стан станції") {
+    SectionCard(tr("Стан станції")) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             LevelChip(r.level, r.level.statusTitle)
             Spacer(Modifier.width(10.dp))
@@ -228,9 +238,13 @@ private fun OverviewTab(vm: AppViewModel, r: StationReport, onEditCode: (Indicat
         }
         Spacer(Modifier.height(10.dp))
         Text(r.summary, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        if (vm.diagOnline == false) {
+            Spacer(Modifier.height(6.dp))
+            HintText(tr("Хмара EcoFlow каже, що станція зараз офлайн, тому це останні збережені нею дані, а не поточні."))
+        }
         if (r.packs.size > 1 && r.totalDesignWh != null && r.totalFullWh != null) {
             Spacer(Modifier.height(8.dp))
-            KeyValue("Разом ємність", "≈${fmt0(r.totalFullWh)} / ${fmt0(r.totalDesignWh)} Вт·год")
+            KeyValue(tr("Разом ємність"), tr("≈{0} / {1} Вт·год", fmt0(r.totalFullWh), fmt0(r.totalDesignWh)))
         }
     }
     val single = r.packs.size == 1
@@ -239,29 +253,29 @@ private fun OverviewTab(vm: AppViewModel, r: StationReport, onEditCode: (Indicat
         PackCard(p, single, onEditCode, onBalance = { vm.openBalance() }, lastBalance = lastBalance, cached = vm.lastCells[p.key])
     }
     if (r.packs.isEmpty()) {
-        SectionCard("Батарея") {
-            HintText("Дані станції надходять, але параметрів батареї поки немає. Зачекайте 10–30 с або натисніть «Оновити».")
+        SectionCard(tr("Батарея")) {
+            HintText(tr("Дані станції надходять, але параметрів батареї поки немає. Зачекайте 10–30 с або натисніть «Оновити»."))
         }
     }
     if (vm.stationLog.isNotEmpty()) {
-        SectionCard("Історія перевірок", collapsible = true, initiallyExpanded = false) {
+        SectionCard(tr("Історія перевірок"), collapsible = true, initiallyExpanded = false) {
             val chem = r.packs.firstOrNull { it.isMain }?.chemistry ?: Chemistry.UNKNOWN
             StationLog.trend(vm.stationLog, chem)?.let {
                 Text(it, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(6.dp))
             }
             for (e in vm.stationLog.take(LOG_PREVIEW)) HintText(StationLog.line(e))
-            if (vm.stationLog.size > LOG_PREVIEW) HintText("…та ще ${vm.stationLog.size - LOG_PREVIEW}. Більше — у технічному звіті.")
+            if (vm.stationLog.size > LOG_PREVIEW) HintText(tr("…та ще {0}. Більше — у технічному звіті.", vm.stationLog.size - LOG_PREVIEW))
         }
     }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-        Button(onClick = { vm.openCapTest() }, modifier = Modifier.weight(1f)) {
-            Text(if (vm.capTestRunning) "🔋 Тест триває" else "🔋 Тест ємності")
+        Button(onClick = { vm.openCapTest() }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 8.dp)) {
+            FitText(if (vm.capTestRunning) tr("🔋 Тест триває") else tr("🔋 Тест ємності"))
         }
         OutlinedButton(
             onClick = { vm.openReport() },
             modifier = Modifier.weight(1f),
-        ) { Text("📄 Звіт") }
+        ) { FitText(tr("📄 Звіт")) }
     }
 }
 
@@ -275,7 +289,7 @@ private fun PackCard(
     lastBalance: LogEntry?,
     cached: CellSnapshot?,
 ) {
-    val title = if (single) "Батарея" else p.title
+    val title = if (single) tr("Батарея") else p.title
     var expanded by rememberSaveable(key = "exp_${p.key}") { mutableStateOf(true) }
     SectionCard(title) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -286,9 +300,9 @@ private fun PackCard(
                     Text("🔋 ${fmt0(it)}%", fontFamily = Mono, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                 }
                 if (p.fullWh != null && p.designWh != null) {
-                    Text("≈${fmt0(p.fullWh)} / ${fmt0(p.designWh)} Вт·год", fontFamily = Mono, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(tr("≈{0} / {1} Вт·год", fmt0(p.fullWh), fmt0(p.designWh)), fontFamily = Mono, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Text("Циклів: ${p.cycles?.toString() ?: "—"}", fontFamily = Mono, style = MaterialTheme.typography.bodyMedium)
+                Text(tr("Циклів: {0}", p.cycles?.toString() ?: "—"), fontFamily = Mono, style = MaterialTheme.typography.bodyMedium)
                 Text(chemistryText(p), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
@@ -311,13 +325,13 @@ private fun PackCard(
         Spacer(Modifier.height(10.dp))
         p.ampMa?.let {
             val a = it / 1000.0
-            KeyValue("Струм зараз", (if (a > 0) "+" else "") + "${fmt1(a)} А" + (p.volMv?.let { v -> " · ${fmt1(v / 1000.0)} В" } ?: ""))
+            KeyValue(tr("Струм зараз"), (if (a > 0) "+" else "") + tr("{0} А", fmt1(a)) + (p.volMv?.let { v -> tr(" · {0} В", fmt1(v / 1000.0)) } ?: ""))
         }
-        if (p.maxCellTemp != null) KeyValue("Температура", "${p.minCellTemp ?: "?"}…${p.maxCellTemp} °C")
+        if (p.maxCellTemp != null) KeyValue(tr("Температура"), "${p.minCellTemp ?: "?"}…${p.maxCellTemp} °C")
 
         Spacer(Modifier.height(6.dp))
         TextButton(onClick = { expanded = !expanded }) {
-            Text(if (expanded) "▲ Згорнути" else "▼ Розширена інформація")
+            Text(if (expanded) tr("▲ Згорнути") else tr("▼ Розширена інформація"))
         }
         if (expanded) PackDetails(p, onBalance, lastBalance, cached)
     }
@@ -328,43 +342,43 @@ private fun PackCard(
 private fun PackDetails(p: PackReport, onBalance: () -> Unit, lastBalance: LogEntry?, cached: CellSnapshot?) {
     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
     Spacer(Modifier.height(10.dp))
-    p.sn?.let { KeyValue("SN пакета", it) }
-    p.sohBms?.let { KeyValue("SOH за BMS", "${fmt0(it)}%") }
-    p.sohCapacity?.let { KeyValue("SOH за вивченою ємністю", "${fmt0(it)}%") }
+    p.sn?.let { KeyValue(tr("SN пакета"), it) }
+    p.sohBms?.let { KeyValue(tr("SOH за BMS"), "${fmt0(it)}%") }
+    p.sohCapacity?.let { KeyValue(tr("SOH за вивченою ємністю"), "${fmt0(it)}%") }
     if (p.designCapMah != null) {
-        KeyValue("Ємність", "${p.fullCapMah?.let { fmt1(it / 1000.0) } ?: "?"} / ${fmt1(p.designCapMah / 1000.0)} А·год")
+        KeyValue(tr("Ємність"), tr("{0} / {1} А·год", p.fullCapMah?.let { fmt1(it / 1000.0) } ?: "?", fmt1(p.designCapMah / 1000.0)))
     }
     if (p.designWh != null && p.packVnom != null && p.designCapMah != null) {
-        NoteKeyValue("Номінал за BMS", "${fmt0(p.designWh)} Вт·год",
-            "${fmt1(p.designCapMah / 1000.0)} А·год × ${fmt1(p.packVnom)} В (${p.seriesCells ?: "?"} груп)")
+        NoteKeyValue(tr("Номінал за BMS"), tr("{0} Вт·год", fmt0(p.designWh)),
+            tr("{0} А·год × {1} В ({2} груп)", fmt1(p.designCapMah / 1000.0), fmt1(p.packVnom), p.seriesCells ?: "?"))
     }
-    p.passport?.wh?.let { KeyValue("За паспортом", "$it Вт·год") }
+    p.passport?.wh?.let { KeyValue(tr("За паспортом"), tr("{0} Вт·год", it)) }
     if (p.cycles != null && p.ratedCycles != null && p.resourceUsedPct != null) {
-        NoteKeyValue("Використано ресурсу", "≈${fmt0(p.resourceUsedPct)}%", "${p.cycles} з ~${p.ratedCycles} циклів до 80%")
+        NoteKeyValue(tr("Використано ресурсу"), "≈${fmt0(p.resourceUsedPct)}%", tr("{0} з ~{1} циклів до 80%", p.cycles, p.ratedCycles))
     }
-    p.remainCapMah?.let { KeyValue("Залишок", "${fmt1(it / 1000.0)} А·год") }
-    if (p.maxMosTemp != null) KeyValue("Температура MOSFET", "${p.minMosTemp ?: "?"}…${p.maxMosTemp} °C")
-    p.accuChgEnergyWh?.let { KeyValue("Накопичено заряду (BMS)", energyString(it.toDouble())) }
-    p.accuDsgEnergyWh?.let { KeyValue("Накопичено розряду (BMS)", energyString(it.toDouble())) }
+    p.remainCapMah?.let { KeyValue(tr("Залишок"), tr("{0} А·год", fmt1(it / 1000.0))) }
+    if (p.maxMosTemp != null) KeyValue(tr("Температура MOSFET"), "${p.minMosTemp ?: "?"}…${p.maxMosTemp} °C")
+    p.accuChgEnergyWh?.let { KeyValue(tr("Накопичено заряду (BMS)"), energyString(it.toDouble())) }
+    p.accuDsgEnergyWh?.let { KeyValue(tr("Накопичено розряду (BMS)"), energyString(it.toDouble())) }
 
     if (p.minCellMv != null && p.maxCellMv != null) {
         Spacer(Modifier.height(12.dp))
-        Text("Напруги груп", style = MaterialTheme.typography.labelLarge)
+        Text(tr("Напруги груп"), style = MaterialTheme.typography.labelLarge)
         Spacer(Modifier.height(6.dp))
-        KeyValue("Мін / макс", "${fmt3(p.minCellMv / 1000.0)} / ${fmt3(p.maxCellMv / 1000.0)} В")
+        KeyValue(tr("Мін / макс"), tr("{0} / {1} В", fmt3(p.minCellMv / 1000.0), fmt3(p.maxCellMv / 1000.0)))
         val delta = p.cellDeltaMv ?: (p.maxCellMv - p.minCellMv)
-        KeyValue("Розкид", "$delta мВ", valueColor = levelColor(p.balanceLevel))
-        p.weakestCell?.let { KeyValue("Найнижча група", "№$it") }
+        KeyValue(tr("Розкид"), tr("{0} мВ", delta), valueColor = levelColor(p.balanceLevel))
+        p.weakestCell?.let { KeyValue(tr("Найнижча група"), "№$it") }
         if (p.cellVols.size >= 2) {
             Spacer(Modifier.height(8.dp))
             CellBars(p.cellVols, p.cellOkMv, p.cellWarnMv)
         } else if (cached != null) {
             // у цьому знімку списку немає — показуємо останній отриманий, чесно з часом
             Spacer(Modifier.height(8.dp))
-            HintText("Напруги по групах — останні отримані ${cached.timeText()} (у свіжих даних станція їх ще не надіслала):")
+            HintText(tr("Напруги по групах — останні отримані {0} (у свіжих даних станція їх ще не надіслала):", cached.timeText()))
             CellBars(cached.cells, p.cellOkMv, p.cellWarnMv)
         } else {
-            HintText("Напруг по кожній групі станція поки не надіслала — є лише мін/макс. Частина моделей шле їх окремими повідомленнями: зачекайте до хвилини на цьому екрані або натисніть «Оновити».")
+            HintText(tr("Напруг по кожній групі станція поки не надіслала — є лише мін/макс. Частина моделей шле їх окремими повідомленнями: зачекайте до хвилини на цьому екрані або натисніть «Оновити»."))
         }
         if (p.isMain) {
             // Остаточно баланс видно лише наприкінці заряду — показуємо останню таку перевірку й кнопку запуску.
@@ -372,12 +386,12 @@ private fun PackDetails(p: PackReport, onBalance: () -> Unit, lastBalance: LogEn
                 Spacer(Modifier.height(6.dp))
                 HintText(StationLog.line(it))
             }
-            TextButton(onClick = onBalance) { Text("⚖️ Перевірити баланс наприкінці заряду") }
+            TextButton(onClick = onBalance) { FitText(tr("⚖️ Перевірити баланс наприкінці заряду")) }
         }
     }
     if (p.findings.isNotEmpty()) {
         Spacer(Modifier.height(12.dp))
-        Text("Висновки", style = MaterialTheme.typography.labelLarge)
+        Text(tr("Висновки"), style = MaterialTheme.typography.labelLarge)
         for (f in p.findings) FindingRow(f.level, f.text)
     }
 }
@@ -389,12 +403,12 @@ private fun MonitorTab(vm: AppViewModel, r: StationReport) {
     val packs = r.packs.filter { it.volMv != null && it.ampMa != null }
     val w = packs.sumOf { it.volMv!! * it.ampMa!! / 1_000_000.0 }
     val main = r.packs.firstOrNull { it.isMain } ?: r.packs.firstOrNull()
-    SectionCard("Зараз") {
+    SectionCard(tr("Зараз")) {
         Text(
             when {
-                w > 5 -> "⚡ Заряджання +${fmt0(w)} Вт"
-                w < -5 -> "🔌 Розряджання ${fmt0(-w)} Вт"
-                else -> "⏸ Без струму"
+                w > 5 -> tr("⚡ Заряджання +{0} Вт", fmt0(w))
+                w < -5 -> tr("🔌 Розряджання {0} Вт", fmt0(-w))
+                else -> tr("⏸ Без струму")
             },
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.Bold,
@@ -406,15 +420,15 @@ private fun MonitorTab(vm: AppViewModel, r: StationReport) {
         )
         Spacer(Modifier.height(6.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            Mini("Стан", main?.soc?.let { "${fmt0(it)}%" } ?: "—")
-            Mini("Напруга", main?.volMv?.let { "${fmt1(it / 1000.0)} В" } ?: "—")
-            Mini("Струм", main?.ampMa?.let { "${fmt1(it / 1000.0)} А" } ?: "—")
+            Mini(tr("Стан"), main?.soc?.let { "${fmt0(it)}%" } ?: "—")
+            Mini(tr("Напруга"), main?.volMv?.let { tr("{0} В", fmt1(it / 1000.0)) } ?: "—")
+            Mini(tr("Струм"), main?.ampMa?.let { tr("{0} А", fmt1(it / 1000.0)) } ?: "—")
         }
     }
-    SectionCard("Потужність батареї (останні хвилини)") {
+    SectionCard(tr("Потужність батареї (останні хвилини)")) {
         PowerChart(vm.powerHistory)
         Spacer(Modifier.height(6.dp))
-        HintText("Вгору — заряд, вниз — розряд. Поки відкрито цю вкладку, дані оновлюються частіше (кожні ~8 с).")
+        HintText(tr("Вгору — заряд, вниз — розряд. Поки відкрито цю вкладку, дані оновлюються частіше (кожні ~8 с)."))
     }
 }
 
@@ -432,7 +446,7 @@ private fun PowerChart(history: List<Pair<Long, Double>>) {
     val warn = levelColor(Level.WARN)
     val axis = MaterialTheme.colorScheme.outline
     if (history.size < 2) {
-        HintText("Збираю дані… графік з'явиться за кілька оновлень.")
+        HintText(tr("Збираю дані… графік з'явиться за кілька оновлень."))
         return
     }
     val vals = history.map { it.second }
@@ -454,8 +468,8 @@ private fun PowerChart(history: List<Pair<Long, Double>>) {
         }
     }
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text("↑ +${fmt0(maxAbs)} Вт", style = MaterialTheme.typography.labelSmall, color = good)
-        Text("↓ -${fmt0(maxAbs)} Вт", style = MaterialTheme.typography.labelSmall, color = warn)
+        Text(tr("↑ +{0} Вт", fmt0(maxAbs)), style = MaterialTheme.typography.labelSmall, color = good)
+        Text(tr("↓ -{0} Вт", fmt0(maxAbs)), style = MaterialTheme.typography.labelSmall, color = warn)
     }
 }
 
@@ -465,7 +479,7 @@ private fun PowerChart(history: List<Pair<Long, Double>>) {
 private fun CodesTab(vm: AppViewModel, r: StationReport, onEditCode: (Indicator) -> Unit, onExplain: (String?) -> Unit) {
     for (p in r.packs) {
         if (p.mos != null || p.codes.isNotEmpty()) {
-            SectionCard("Коди BMS${if (r.packs.size > 1) " · ${p.title}" else ""}") {
+            SectionCard(tr("Коди BMS{0}", if (r.packs.size > 1) " · ${p.title}" else "")) {
                 p.mos?.let { m ->
                     Column(Modifier.padding(vertical = 6.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -482,33 +496,33 @@ private fun CodesTab(vm: AppViewModel, r: StationReport, onEditCode: (Indicator)
                     IndicatorRow(c.title, c.value, c.level, c.note, onEditNote = c.codeKey?.let { { onEditCode(c) } })
                     if (EcoflowCodes.hasExplanation(c.codeKey)) {
                         TextButton(onClick = { onExplain(c.codeKey) }, modifier = Modifier.padding(start = 18.dp)) {
-                            Text("❓ Що це за помилка")
+                            Text(tr("❓ Що це за помилка"))
                         }
                     }
                 }
             }
         }
         if (p.notProvided.isNotEmpty()) {
-            SectionCard("Не передається цією BMS${if (r.packs.size > 1) " · ${p.title}" else ""}", collapsible = true, initiallyExpanded = false) {
+            SectionCard(tr("Не передається цією BMS{0}", if (r.packs.size > 1) " · ${p.title}" else ""), collapsible = true, initiallyExpanded = false) {
                 for (n in p.notProvided) HintText("· $n")
-                HintText("Це заглушки прошивки, а не несправність.")
+                HintText(tr("Це заглушки прошивки, а не несправність."))
             }
         }
     }
     if (r.protections.isNotEmpty()) {
-        SectionCard("Захисти й зв'язок", collapsible = true) {
+        SectionCard(tr("Захисти й зв'язок"), collapsible = true) {
             for (ind in r.protections) {
                 IndicatorRow(ind.title, ind.value, ind.level, ind.note, onEditNote = ind.codeKey?.let { { onEditCode(ind) } })
             }
         }
     }
-    SectionCard("Історія кодів і захистів", collapsible = true, initiallyExpanded = false) {
+    SectionCard(tr("Історія кодів і захистів"), collapsible = true, initiallyExpanded = false) {
         val h = vm.codeHistory
         if (h.isEmpty()) {
-            HintText("Змін поки не зафіксовано. Поки відкрита діагностика, кожна поява/зникнення коду записується з часом і станом станції.")
+            HintText(tr("Змін поки не зафіксовано. Поки відкрита діагностика, кожна поява/зникнення коду записується з часом і станом станції."))
         } else {
             for (e in h.take(HISTORY_PREVIEW)) CodeEventRow(e)
-            if (h.size > HISTORY_PREVIEW) HintText("…та ще ${h.size - HISTORY_PREVIEW}. Повністю — у технічному звіті.")
+            if (h.size > HISTORY_PREVIEW) HintText(tr("…та ще {0}. Повністю — у технічному звіті.", h.size - HISTORY_PREVIEW))
         }
     }
 }
@@ -523,13 +537,13 @@ private fun ExplainDialog(doc: EcoflowCodes.Doc, onDismiss: () -> Unit) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(10.dp).clip(CircleShape).background(levelColor(doc.level)))
                     Spacer(Modifier.width(8.dp))
-                    Text(if (doc.confident) "Підтверджено на реальних станціях" else "Попередній висновок", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(if (doc.confident) tr("Підтверджено на реальних станціях") else tr("Попередній висновок"), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(doc.detail, style = MaterialTheme.typography.bodyMedium)
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("Зрозуміло") } },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(tr("Зрозуміло")) } },
     )
 }
 
@@ -541,9 +555,9 @@ private const val LOG_PREVIEW = 12
 @Composable
 private fun ConnectionDot(connected: Boolean, online: Boolean?) {
     val (color, text) = when {
-        !connected -> levelColor(Level.UNKNOWN) to "не підключено"
-        online == false -> levelColor(Level.BAD) to "станція офлайн"
-        else -> levelColor(Level.GOOD) to "онлайн"
+        !connected -> levelColor(Level.UNKNOWN) to tr("не підключено")
+        online == false -> levelColor(Level.BAD) to tr("станція офлайн")
+        else -> levelColor(Level.GOOD) to tr("онлайн")
     }
     val live = connected && online != false
     var pulse by remember { mutableFloatStateOf(0f) }
@@ -562,11 +576,11 @@ private fun CodeEventRow(e: CodeEvent) {
         Box(Modifier.padding(top = 6.dp).size(8.dp).clip(CircleShape).background(levelColor(e.level)))
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            Text("${CodeHistory.whenText(e)} · ${e.scope}", style = MaterialTheme.typography.labelMedium,
+            Text("${CodeHistory.whenText(e)} · ${localize(e.scope)}", style = MaterialTheme.typography.labelMedium,
                 color = if (e.betweenChecks) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(e.title, style = MaterialTheme.typography.bodyMedium)
+            Text(localize(e.title), style = MaterialTheme.typography.bodyMedium)
             Text(CodeHistory.changeText(e), style = MaterialTheme.typography.bodyMedium, fontFamily = Mono, color = levelColor(e.level))
-            e.context?.let { HintText(it) }
+            e.context?.let { HintText(localize(it)) }
         }
     }
 }
@@ -589,23 +603,23 @@ private fun CodeNoteDialog(ec: CodeEdit, initial: String, onDismiss: () -> Unit,
     var note by remember { mutableStateOf(initial) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Примітка до коду") },
+        title = { Text(tr("Примітка до коду")) },
         text = {
-            Column {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 Text("${ec.title}: ${ec.value}", style = MaterialTheme.typography.bodyMedium, fontFamily = Mono)
                 Spacer(Modifier.height(4.dp))
-                HintText("Ключ «${ec.key}». Примітка зберігається на телефоні й показується для цього коду на всіх станціях та у технічному звіті. Порожнє поле — видалити.")
+                HintText(tr("Ключ «{0}». Примітка зберігається на телефоні й показується для цього коду на всіх станціях та у технічному звіті. Порожнє поле — видалити.", ec.key))
                 Spacer(Modifier.height(8.dp))
-                OutlinedTextField(value = note, onValueChange = { note = it }, label = { Text("Що означає / що допомогло") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(value = note, onValueChange = { note = it }, label = { Text(tr("Що означає / що допомогло")) }, modifier = Modifier.fillMaxWidth())
             }
         },
-        confirmButton = { TextButton(onClick = { onSave(note) }) { Text("Зберегти") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Скасувати") } },
+        confirmButton = { TextButton(onClick = { onSave(note) }) { Text(tr("Зберегти")) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(tr("Скасувати")) } },
     )
 }
 
 private fun chemistryText(p: PackReport): String {
-    if (p.chemistry == Chemistry.UNKNOWN) return "Хімія: не визначено" + (p.seriesCells?.let { " · ${it}S" } ?: "")
-    val sure = if (p.chemistryConfident) "" else " (ймовірно)"
+    if (p.chemistry == Chemistry.UNKNOWN) return tr("Хімія: не визначено") + (p.seriesCells?.let { " · ${it}S" } ?: "")
+    val sure = if (p.chemistryConfident) "" else tr(" (ймовірно)")
     return "${p.chemistry.title}$sure" + (p.seriesCells?.let { " · ${it}S" } ?: "")
 }

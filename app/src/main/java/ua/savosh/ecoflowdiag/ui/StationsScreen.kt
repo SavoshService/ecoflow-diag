@@ -1,9 +1,16 @@
 package ua.savosh.ecoflowdiag.ui
 
+import ua.savosh.ecoflowdiag.core.localize
+import ua.savosh.ecoflowdiag.core.tk
+import ua.savosh.ecoflowdiag.core.tr
 import android.content.Context
 import android.content.Intent
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -53,6 +60,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -63,9 +71,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import ua.savosh.ecoflowdiag.core.Level
+import ua.savosh.ecoflowdiag.core.Models
 import ua.savosh.ecoflowdiag.core.Health
 import kotlin.math.roundToInt
 import androidx.compose.animation.core.animateFloatAsState
@@ -99,18 +109,19 @@ fun StationsScreen(vm: AppViewModel) {
     var editNoteFor by remember { mutableStateOf<StationEntry?>(null) }
     var confirmDelete by remember { mutableStateOf<StationEntry?>(null) }
     var confirmLogout by remember { mutableStateOf(false) }
-    var query by remember { mutableStateOf("") }
-    var filter by remember { mutableStateOf(StFilter.ALL) }
     val context = LocalContext.current
+    val listState = vm.stationsListState
+    val fabExpanded by remember { derivedStateOf { listState.firstVisibleItemIndex == 0 } }
 
     Scaffold(
         topBar = {
             TopAppBar(
+                navigationIcon = { LanguageButton(vm) },
                 title = {
                     Column {
-                        Text("Станції", fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        FitText(tr("Станції"), fontWeight = FontWeight.Bold)
                         Text(
-                            vm.auth?.userName ?: vm.email.ifBlank { "не виконано вхід" },
+                            vm.auth?.userName ?: vm.email.ifBlank { tr("не виконано вхід") },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -119,34 +130,33 @@ fun StationsScreen(vm: AppViewModel) {
                     }
                 },
                 actions = {
-                    // Кнопка входу/синхронізації Google — завжди видима, веде на екран копії
-                    IconButton(onClick = { vm.openBackup() }) {
-                        GoogleIcon()
-                    }
-                    // Instagram Savosh Service
-                    IconButton(onClick = { openUrl(context, "https://instagram.com/savosh_service") }) {
-                        InstagramIcon()
-                    }
-                    if (vm.loggedIn) {
-                        IconButton(onClick = { showAdd = true }) {
-                            Icon(Icons.Filled.Add, contentDescription = "Додати станцію")
+                    CompactActions {
+                        // Кнопка входу/синхронізації Google — завжди видима, веде на екран копії
+                        IconButton(onClick = { vm.openBackup() }) {
+                            GoogleIcon()
                         }
-                        IconButton(
-                            onClick = { if (vm.refreshAllBusy) vm.stopRefreshAll() else vm.refreshAllStations() },
-                            enabled = vm.stations.isNotEmpty(),
-                        ) {
-                            if (vm.refreshAllBusy) {
-                                CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                            } else {
-                                Icon(Icons.Filled.Refresh, contentDescription = "Оновити всі станції")
+                        // Instagram Savosh Service
+                        IconButton(onClick = { openUrl(context, "https://instagram.com/savosh_service") }) {
+                            InstagramIcon()
+                        }
+                        if (vm.loggedIn) {
+                            IconButton(
+                                onClick = { if (vm.refreshAllBusy) vm.stopRefreshAll() else vm.refreshAllStations() },
+                                enabled = vm.stations.isNotEmpty(),
+                            ) {
+                                if (vm.refreshAllBusy) {
+                                    CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                                } else {
+                                    Icon(Icons.Filled.Refresh, contentDescription = tr("Оновити всі станції"))
+                                }
                             }
-                        }
-                        IconButton(onClick = { confirmLogout = true }) {
-                            Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Вийти з акаунта")
-                        }
-                    } else {
-                        IconButton(onClick = { vm.goToLogin() }) {
-                            Text("🔑", style = MaterialTheme.typography.titleMedium)
+                            IconButton(onClick = { confirmLogout = true }) {
+                                Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = tr("Вийти з акаунта"))
+                            }
+                        } else {
+                            IconButton(onClick = { vm.goToLogin() }) {
+                                Text("🔑", style = MaterialTheme.typography.titleMedium)
+                            }
                         }
                     }
                 },
@@ -156,21 +166,45 @@ fun StationsScreen(vm: AppViewModel) {
         floatingActionButton = {
             ExtendedFloatingActionButton(
                 onClick = { showAdd = true },
-                icon = { Icon(Icons.Filled.Add, contentDescription = null) },
-                text = { Text("Додати станцію") },
+                icon = { Icon(Icons.Filled.Add, contentDescription = tr("Додати станцію")) },
+                text = { Text(tr("Додати станцію")) },
+                expanded = fabExpanded,
             )
         },
     ) { pad ->
-        Column(Modifier.fillMaxSize().padding(pad)) {
+        val showBackup = vm.needsBackup && !vm.backupBannerHidden
+        val attentionCount = vm.stations.count { it.online == false || sohNeedsAttention(it.lastSoh) }
+        // Фільтри лишаються, поки щось відфільтровано: інакше з однією станцією його не було б чим скинути.
+        val showFilters = vm.stations.size > 1 || vm.stationFilter != StFilter.ALL || vm.stationQuery.isNotEmpty()
+        val showStatus = vm.refreshAllBusy || vm.refreshAllStatus.isNotBlank()
+        val shown = vm.stations.filter { stationMatches(it, vm.stationQuery, vm.stationFilter) }
+        // Нова станція стає першою: показуємо її одразу, інакше вона лишалась за банерами,
+        // а повторна спроба додати писала «вже є у списку».
+        val firstSn = vm.stations.firstOrNull()?.sn
+        var knownFirstSn by remember { mutableStateOf(firstSn) }
+        LaunchedEffect(firstSn) {
+            if (firstSn != null && firstSn != knownFirstSn) {
+                val update = vm.availableUpdate != null && !vm.updateDismissed
+                val above = listOf(donateEnabled(), update, showBackup, attentionCount > 0, showFilters, showStatus).count { it }
+                listState.scrollToItem(above)
+            }
+            knownFirstSn = firstSn
+        }
+        // Усе прокручується разом: на малому екрані банери й фільтри не лишали місця для самих станцій.
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize().formPadding(pad),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
             // Плитка «КАВА» лишається нагорі; зв'язок, деталі, прошивка і «Майстерня» — на нижній панелі та в «Ще».
             if (donateEnabled()) {
-                CoffeeTile(Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp)) { showCoffee = true }
+                item(key = "coffee") { CoffeeTile { showCoffee = true } }
             }
             // Банер оновлення — завжди видимий (навіть коли ще немає станцій).
-            vm.availableUpdate?.let { upd ->
-                if (!vm.updateDismissed) {
+            vm.availableUpdate?.takeIf { !vm.updateDismissed }?.let { upd ->
+                item(key = "update") {
                     UpdateBanner(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                         version = upd.version,
                         notes = upd.notes,
                         downloading = vm.updateDownloading,
@@ -183,67 +217,53 @@ fun StationsScreen(vm: AppViewModel) {
                 }
             }
             // Нагадування увімкнути резервну копію (є дані, але копію не налаштовано).
-            if (vm.needsBackup && !vm.backupBannerHidden) {
-                BackupReminder(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                    onSetup = { vm.openBackup() },
-                    onHide = { vm.hideBackupBanner() },
-                )
+            if (showBackup) {
+                item(key = "backup") {
+                    BackupReminder(onSetup = { vm.openBackup() }, onHide = { vm.hideBackupBanner() })
+                }
             }
             if (vm.stations.isEmpty()) {
-                Column(
-                    Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 32.dp, vertical = 16.dp),
-                    verticalArrangement = Arrangement.Center,
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    if (!vm.loggedIn) {
-                        Text("Вхід в EcoFlow — для діагностики", style = MaterialTheme.typography.titleMedium)
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            "Замовлення, склад і замітки працюють без входу. Щоб бачити й діагностувати свої станції — " +
-                                "увійдіть в акаунт EcoFlow.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center,
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        Button(onClick = { vm.goToLogin() }) { Text("Увійти в EcoFlow") }
+                item(key = "empty") {
+                    Column(
+                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        if (!vm.loggedIn) {
+                            Text(tr("Вхід в EcoFlow — для діагностики"), style = MaterialTheme.typography.titleMedium)
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                tr("Замовлення, склад і замітки працюють без входу. Щоб бачити й діагностувати свої станції — увійдіть в акаунт EcoFlow."),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            Button(onClick = { vm.goToLogin() }) { Text(tr("Увійти в EcoFlow")) }
+                        } else {
+                            Text(tr("Поки що немає станцій"), style = MaterialTheme.typography.titleMedium)
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                tr("Додайте станцію за серійним номером. Він є на наклейці станції та в застосунку EcoFlow у налаштуваннях пристрою. Станцію спершу треба додати в цей акаунт EcoFlow."),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                         Spacer(Modifier.height(20.dp))
                         DemoCard(onOpen = { vm.openDemo() })
-                    } else {
-                    Text("Поки що немає станцій", style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        "Додайте станцію за серійним номером. Він є на наклейці станції та в застосунку EcoFlow у налаштуваннях пристрою. " +
-                            "Станцію спершу треба додати в цей акаунт EcoFlow.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.height(20.dp))
-                    DemoCard(onOpen = { vm.openDemo() })
                     }
                 }
             } else {
-                val attentionCount = vm.stations.count { it.online == false || sohNeedsAttention(it.lastSoh) }
                 if (attentionCount > 0) {
-                    AttentionBanner(
-                        count = attentionCount,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
-                        onClick = { filter = StFilter.ATTENTION },
-                    )
+                    item(key = "attention") {
+                        AttentionBanner(count = attentionCount, onClick = { vm.stationFilter = StFilter.ATTENTION })
+                    }
                 }
-                if (vm.stations.size > 1) {
-                    StationFilters(query, { query = it }, filter, { filter = it })
+                if (showFilters) {
+                    item(key = "filters") {
+                        StationFilters(vm.stationQuery, { vm.stationQuery = it }, vm.stationFilter, { vm.stationFilter = it })
+                    }
                 }
-                val shown = vm.stations.filter { stationMatches(it, query, filter) }
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                if (vm.refreshAllBusy || vm.refreshAllStatus.isNotBlank()) {
+                if (showStatus) {
                     item(key = "refresh_status") {
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp)) {
                             if (vm.refreshAllBusy) {
@@ -261,7 +281,7 @@ fun StationsScreen(vm: AppViewModel) {
                 if (shown.isEmpty()) {
                     item(key = "no_match") {
                         Text(
-                            "Нічого не знайдено за фільтром.",
+                            tr("Нічого не знайдено за фільтром."),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(vertical = 8.dp),
@@ -274,7 +294,7 @@ fun StationsScreen(vm: AppViewModel) {
                         onOpen = { vm.openDiag(st.sn) },
                         onEditNote = { editNoteFor = st },
                         onShare = { tech ->
-                            vm.savedReport(st.sn, tech)?.let { shareText(context, it, "${if (tech) "Розширений звіт" else "Короткий звіт"} ${st.sn}") }
+                            vm.savedReport(st.sn, tech)?.let { shareText(context, it, "${if (tech) tr("Розширений звіт") else tr("Короткий звіт")} ${st.sn}") }
                         },
                         hasReport = vm.savedReport(st.sn) != null,
                         onInfo = { vm.openStationInfo(st.sn) },
@@ -283,7 +303,6 @@ fun StationsScreen(vm: AppViewModel) {
                 }
                 if (!vm.demoHidden) {
                     item(key = "demo_card") { DemoCard(onOpen = { vm.openDemo() }, onDismiss = { vm.hideDemo() }) }
-                }
                 }
             }
         }
@@ -307,28 +326,29 @@ fun StationsScreen(vm: AppViewModel) {
     if (confirmLogout) {
         AlertDialog(
             onDismissRequest = { confirmLogout = false },
-            title = { Text("Вийти з акаунта?") },
-            text = { Text("Ви вийдете з акаунта EcoFlow. Збережений пароль буде стерто — для наступного входу введіть його знову. Станції, звіти й примітки залишаться.") },
-            confirmButton = { TextButton(onClick = { confirmLogout = false; vm.logout() }) { Text("Вийти") } },
-            dismissButton = { TextButton(onClick = { confirmLogout = false }) { Text("Скасувати") } },
+            title = { Text(tr("Вийти з акаунта?")) },
+            text = { DialogText(tr("Ви вийдете з акаунта EcoFlow. Збережений пароль буде стерто — для наступного входу введіть його знову. Станції, звіти й примітки залишаться.")) },
+            confirmButton = { TextButton(onClick = { confirmLogout = false; vm.logout() }) { Text(tr("Вийти")) } },
+            dismissButton = { TextButton(onClick = { confirmLogout = false }) { Text(tr("Скасувати")) } },
         )
     }
     confirmDelete?.let { st ->
         AlertDialog(
             onDismissRequest = { confirmDelete = null },
-            title = { Text("Видалити станцію?") },
-            text = { Text("${st.sn}${if (st.note.isNotBlank()) " — ${st.note}" else ""}\nЗбережений звіт теж буде видалено.") },
+            title = { Text(tr("Видалити станцію?")) },
+            text = { DialogText(tr("{0}{1}\nЗбережений звіт теж буде видалено.", st.sn, if (st.note.isNotBlank()) " — ${st.note}" else "")) },
             confirmButton = {
                 TextButton(onClick = {
                     vm.deleteStation(st.sn)
                     confirmDelete = null
-                }) { Text("Видалити") }
+                }) { Text(tr("Видалити")) }
             },
-            dismissButton = { TextButton(onClick = { confirmDelete = null }) { Text("Скасувати") } },
+            dismissButton = { TextButton(onClick = { confirmDelete = null }) { Text(tr("Скасувати")) } },
         )
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun StationCard(
     st: StationEntry,
@@ -362,14 +382,14 @@ private fun StationCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
             Column(Modifier.weight(1f)) {
-                Text(st.model ?: "Модель визначиться після підключення", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                Text(st.model?.let { localize(it) } ?: tr("Модель визначиться після підключення"), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                 Text(st.sn, fontFamily = Mono, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 if (st.note.isNotBlank()) {
                     Text(st.note, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (st.tags.isNotEmpty()) {
                     Text(
-                        st.tags.joinToString("  ") { "#$it" },
+                        st.tags.joinToString("  ") { "#" + tr(it) },
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.SemiBold,
@@ -385,7 +405,10 @@ private fun StationCard(
                 }
                 if (st.lastCheckMs != null) {
                     Spacer(Modifier.height(6.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
                         // Значок — оцінка батареї лише за SOH; «⚠» — є зауваження (коди, дисбаланс тощо).
                         val overall = levelFromName(st.lastLevel)
                         val grade = Health.of(st.lastSoh)
@@ -393,13 +416,11 @@ private fun StationCard(
                         if (grade != null && soh != null) {
                             LevelChip(grade.level, "${grade.chip} · SOH ${soh.roundToInt()}%")
                             if (overall.rank >= Level.WARN.rank) {
-                                Spacer(Modifier.width(6.dp))
                                 Text("⚠", color = levelColor(overall), fontWeight = FontWeight.Bold)
                             }
                         } else {
                             LevelChip(overall, overall.statusTitle)
                         }
-                        Spacer(Modifier.width(8.dp))
                         Text(
                             SimpleDateFormat("dd.MM.yy HH:mm", Locale.US).format(Date(st.lastCheckMs)),
                             style = MaterialTheme.typography.bodySmall,
@@ -408,19 +429,19 @@ private fun StationCard(
                     }
                 } else {
                     Spacer(Modifier.height(4.dp))
-                    Text("Ще не перевірялась", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(tr("Ще не перевірялась"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             Box {
-                IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "Меню") }
+                IconButton(onClick = { menu = true }) { Icon(Icons.Filled.MoreVert, contentDescription = tr("Меню")) }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                    DropdownMenuItem(text = { Text("Повна інформація про станцію") }, onClick = { menu = false; onInfo() })
-                    DropdownMenuItem(text = { Text("Змінити примітку") }, onClick = { menu = false; onEditNote() })
+                    DropdownMenuItem(text = { Text(tr("Про станцію")) }, onClick = { menu = false; onInfo() })
+                    DropdownMenuItem(text = { Text(tr("Змінити примітку")) }, onClick = { menu = false; onEditNote() })
                     if (hasReport) {
-                        DropdownMenuItem(text = { Text("Звіт клієнту (останній)") }, onClick = { menu = false; onShare(false) })
-                        DropdownMenuItem(text = { Text("Технічний звіт (останній)") }, onClick = { menu = false; onShare(true) })
+                        DropdownMenuItem(text = { Text(tr("Звіт клієнту (останній)")) }, onClick = { menu = false; onShare(false) })
+                        DropdownMenuItem(text = { Text(tr("Технічний звіт (останній)")) }, onClick = { menu = false; onShare(true) })
                     }
-                    DropdownMenuItem(text = { Text("Видалити") }, onClick = { menu = false; onDelete() })
+                    DropdownMenuItem(text = { Text(tr("Видалити")) }, onClick = { menu = false; onDelete() })
                 }
             }
             }
@@ -431,9 +452,9 @@ private fun StationCard(
 @Composable
 private fun OnlineDot(online: Boolean?) {
     val (txt, color) = when (online) {
-        true -> "● онлайн" to levelColor(Level.GOOD)
-        false -> "● офлайн" to levelColor(Level.BAD)
-        null -> "● невідомо" to levelColor(Level.UNKNOWN)
+        true -> tr("● онлайн") to levelColor(Level.GOOD)
+        false -> tr("● офлайн") to levelColor(Level.BAD)
+        null -> tr("● невідомо") to levelColor(Level.UNKNOWN)
     }
     Text(txt, style = MaterialTheme.typography.labelMedium, color = color, fontWeight = FontWeight.SemiBold)
 }
@@ -499,7 +520,7 @@ private fun AttentionBanner(count: Int, modifier: Modifier = Modifier, onClick: 
             Text("⚠️", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.width(10.dp))
             Text(
-                "Потребують уваги: $count. Торкніться, щоб показати.",
+                tr("Потребують уваги: {0}. Торкніться, щоб показати.", count),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onErrorContainer,
                 fontWeight = FontWeight.SemiBold,
@@ -511,8 +532,10 @@ private fun AttentionBanner(count: Int, modifier: Modifier = Modifier, onClick: 
 /** Здоров'я батареї потребує уваги — за тією ж шкалою (і округленням), що й значок на картці. */
 private fun sohNeedsAttention(soh: Double?): Boolean = (Health.of(soh)?.level?.rank ?: -1) >= Level.WARN.rank
 
-private enum class StFilter(val title: String) {
-    ALL("Усі"), ONLINE("Онлайн"), OFFLINE("Офлайн"), ATTENTION("Увага")
+enum class StFilter(private val titleKey: String) {
+    ALL(tk("Усі")), ONLINE(tk("Онлайн")), OFFLINE(tk("Офлайн")), ATTENTION(tk("Увага"));
+
+    val title: String get() = tr(titleKey)
 }
 
 private fun stationMatches(st: StationEntry, query: String, filter: StFilter): Boolean {
@@ -538,23 +561,24 @@ private fun StationFilters(
     filter: StFilter,
     onFilter: (StFilter) -> Unit,
 ) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+    Column(Modifier.fillMaxWidth()) {
         OutlinedTextField(
             value = query,
             onValueChange = onQuery,
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Пошук за SN або приміткою") },
+            label = { Text(tr("Пошук за SN або приміткою")) },
         )
         Spacer(Modifier.height(6.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            val inner = PaddingValues(horizontal = 4.dp)
             for (f in StFilter.entries) {
                 if (f == filter) {
-                    Button(onClick = { onFilter(f) }, modifier = Modifier.weight(1f)) {
-                        Text(f.title, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                    Button(onClick = { onFilter(f) }, modifier = Modifier.weight(1f), contentPadding = inner) {
+                        FitText(f.title, style = MaterialTheme.typography.labelMedium)
                     }
                 } else {
-                    OutlinedButton(onClick = { onFilter(f) }, modifier = Modifier.weight(1f)) {
-                        Text(f.title, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                    OutlinedButton(onClick = { onFilter(f) }, modifier = Modifier.weight(1f), contentPadding = inner) {
+                        FitText(f.title, style = MaterialTheme.typography.labelMedium)
                     }
                 }
             }
@@ -566,8 +590,9 @@ private fun StationFilters(
 @Composable
 private fun DemoCard(onOpen: () -> Unit, onDismiss: (() -> Unit)? = null) {
     var pulse by remember { mutableFloatStateOf(0f) }
+    // Пульсує лише перші секунди: безкінечна анімація на головному екрані марно садила б батарею.
     LaunchedEffect(Unit) {
-        while (true) { pulse += 0.06f; kotlinx.coroutines.delay(33) }
+        repeat(360) { pulse += 0.06f; kotlinx.coroutines.delay(33) }
     }
     val glow = (0.35f + 0.35f * kotlin.math.sin(pulse.toDouble()).toFloat()).coerceIn(0.1f, 0.8f)
     Card(
@@ -580,17 +605,17 @@ private fun DemoCard(onOpen: () -> Unit, onDismiss: (() -> Unit)? = null) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(Modifier.size(44.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = glow)), contentAlignment = Alignment.Center) {
-                Text("🧪", fontSize = 22.sp)
+                Text("🔬", fontSize = 22.sp)
             }
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
-                Text("Демо станція", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSecondaryContainer)
-                Text("Торкніться, щоб подивитись можливості: здоров'я, цикли, коди й пояснення, монітор заряду/розряду — на несправжніх даних.",
+                Text(tr("Демо станція"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                Text(tr("Торкніться, щоб подивитись можливості: здоров'я, цикли, коди й пояснення, монітор заряду/розряду — на несправжніх даних."),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
             }
             if (onDismiss != null) {
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Filled.Close, contentDescription = "Сховати демо", tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                    Icon(Icons.Filled.Close, contentDescription = tr("Сховати демо"), tint = MaterialTheme.colorScheme.onSecondaryContainer)
                 }
             }
         }
@@ -607,23 +632,22 @@ private fun BackupReminder(modifier: Modifier = Modifier, onSetup: () -> Unit, o
     ) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
             Text(
-                "⚠️ Увімкни резервну копію",
+                tr("⚠️ Увімкни резервну копію"),
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onTertiaryContainer,
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                "Якщо видалити застосунок — замовлення, склад і замітки пропадуть. Збережи копію на Google Диск " +
-                    "(безкоштовно, у твоєму власному хмарному сховищі) — і далі вона оновлюватиметься сама.",
+                tr("Якщо видалити застосунок — замовлення, склад і замітки пропадуть. Копія на твоєму Google Диску безкоштовна й оновлюється сама."),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onTertiaryContainer,
             )
             Spacer(Modifier.height(10.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Button(onClick = onSetup) { Text("Налаштувати копію") }
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = onHide) { Text("Пізніше") }
+                Button(onClick = onSetup, modifier = Modifier.weight(1f)) { FitText(tr("Налаштувати копію")) }
+                Spacer(Modifier.width(8.dp))
+                TextButton(onClick = onHide) { FitText(tr("Пізніше")) }
             }
         }
     }
@@ -647,13 +671,11 @@ private fun CoffeeTile(modifier: Modifier = Modifier, onClick: () -> Unit) {
             Text("☕", style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text("КАВА", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                Text(
-                    "Програма безкоштовна — підтримай автора",
+                Text(tr("КАВА"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                FitText(
+                    tr("Програма безкоштовна — підтримай автора"),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
                 )
             }
             Text("›", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -680,9 +702,9 @@ private fun UpdateBanner(
     ) {
         Column(Modifier.padding(start = 14.dp, end = 6.dp, top = 10.dp, bottom = 6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("⬆ Доступна версія $version", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.weight(1f))
+                Text(tr("⬆ Доступна версія {0}", version), fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.weight(1f))
                 if (!downloading) {
-                    IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, contentDescription = "Закрити") }
+                    IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, contentDescription = tr("Закрити")) }
                 }
             }
             if (notes.isNotBlank()) {
@@ -697,7 +719,7 @@ private fun UpdateBanner(
                 }
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    if (progress in 0..100) "Завантаження… $progress%" else "Завантаження…",
+                    if (progress in 0..100) tr("Завантаження… {0}%", progress) else tr("Завантаження…"),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
                 )
@@ -706,8 +728,8 @@ private fun UpdateBanner(
                     Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = onUpdate) { Text("Оновити") }
-                    TextButton(onClick = onBrowser) { Text("У браузері") }
+                    TextButton(onClick = onUpdate) { FitText(tr("Оновити")) }
+                    TextButton(onClick = onBrowser) { FitText(tr("У браузері")) }
                 }
             }
         }
@@ -721,19 +743,23 @@ private fun AddStationDialog(onDismiss: () -> Unit, onAdd: (String, String) -> S
     var error by remember { mutableStateOf<String?>(null) }
     var showHelp by remember { mutableStateOf(false) }
     val scanLauncher = rememberLauncherForActivityResult(ScanContract()) { result ->
-        result.contents?.let { sn = it.trim().uppercase(); error = null }
+        result.contents?.let { sn = Models.extractSn(it); error = null }
     }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Нова станція") },
+        title = { Text(tr("Нова станція")) },
         text = {
-            Column {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 OutlinedTextField(
                     value = sn,
                     onValueChange = { sn = it.uppercase(); error = null },
-                    label = { Text("Серійний номер (SN)") },
+                    label = { Text(tr("Серійний номер (SN)")) },
                     singleLine = true,
-                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.Characters,
+                        autoCorrectEnabled = false,
+                        keyboardType = KeyboardType.Ascii,
+                    ),
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(8.dp))
@@ -742,15 +768,20 @@ private fun AddStationDialog(onDismiss: () -> Unit, onAdd: (String, String) -> S
                         onClick = {
                             scanLauncher.launch(
                                 ScanOptions()
-                                    .setPrompt("Наведіть на штрих-код / QR серійного номера станції")
+                                    .setPrompt(tr("Наведіть на штрих-код / QR серійного номера станції"))
                                     .setBeepEnabled(true)
                                     .setOrientationLocked(false),
                             )
                         },
                         modifier = Modifier.weight(1f),
-                    ) { Text("📷 Сканувати") }
-                    OutlinedButton(onClick = { showHelp = !showHelp }, modifier = Modifier.weight(1f)) {
-                        Text(if (showHelp) "Сховати" else "📖 Інструкція")
+                        contentPadding = PaddingValues(horizontal = 6.dp),
+                    ) { FitText(tr("📷 Сканувати")) }
+                    OutlinedButton(
+                        onClick = { showHelp = !showHelp },
+                        modifier = Modifier.weight(1f),
+                        contentPadding = PaddingValues(horizontal = 6.dp),
+                    ) {
+                        FitText(if (showHelp) tr("Сховати") else tr("📖 Інструкція"))
                     }
                 }
                 if (showHelp) {
@@ -761,7 +792,7 @@ private fun AddStationDialog(onDismiss: () -> Unit, onAdd: (String, String) -> S
                 OutlinedTextField(
                     value = note,
                     onValueChange = { note = it },
-                    label = { Text("Примітка (клієнт, телефон…)") },
+                    label = { Text(tr("Примітка (клієнт, телефон…)")) },
                     modifier = Modifier.fillMaxWidth(),
                 )
                 error?.let {
@@ -770,8 +801,8 @@ private fun AddStationDialog(onDismiss: () -> Unit, onAdd: (String, String) -> S
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { error = onAdd(sn, note) }) { Text("Додати") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Скасувати") } },
+        confirmButton = { TextButton(onClick = { error = onAdd(sn, note) }) { Text(tr("Додати")) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(tr("Скасувати")) } },
     )
 }
 
@@ -779,12 +810,12 @@ private fun AddStationDialog(onDismiss: () -> Unit, onAdd: (String, String) -> S
 private fun AddStationHelp() {
     Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
         Column(Modifier.padding(12.dp)) {
-            Text("Як дізнатися серійний номер", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+            Text(tr("Як дізнатися серійний номер"), fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.height(6.dp))
-            HelpStep("1", "Спочатку додайте станцію в офіційний застосунок EcoFlow — тим самим акаунтом, що й тут.")
-            HelpStep("2", "У EcoFlow відкрийте станцію → Налаштування → Технічні характеристики.")
-            HelpStep("3", "Натисніть і утримуйте серійний номер угорі, поки він не виділиться і не з'явиться «Копіювати» — скопіюйте.")
-            HelpStep("4", "Поверніться сюди і вставте SN у поле вище. Або просто відскануйте штрих-код чи QR на самій станції кнопкою «Сканувати».")
+            HelpStep("1", tr("Спочатку додайте станцію в офіційний застосунок EcoFlow — тим самим акаунтом, що й тут."))
+            HelpStep("2", tr("У EcoFlow відкрийте станцію → Налаштування → Технічні характеристики."))
+            HelpStep("3", tr("Натисніть і утримуйте серійний номер угорі, поки він не виділиться і не з'явиться «Копіювати» — скопіюйте."))
+            HelpStep("4", tr("Поверніться сюди і вставте SN у поле вище. Або просто відскануйте штрих-код чи QR на самій станції кнопкою «Сканувати»."))
         }
     }
 }
@@ -797,7 +828,8 @@ private fun HelpStep(n: String, text: String) {
     }
 }
 
-private val PRESET_TAGS = listOf("BMS", "АКБ", "Інвертер", "Плата", "Дисплей", "Зарядка")
+/** Зберігаються українською, щоб не губились при зміні мови; показуються через переклад. */
+private val PRESET_TAGS = listOf("BMS", tk("АКБ"), tk("Інвертер"), tk("Плата"), tk("Дисплей"), tk("Зарядка"))
 
 @Composable
 private fun NoteDialog(
@@ -810,28 +842,28 @@ private fun NoteDialog(
     val selected = remember { mutableStateListOf<String>().apply { addAll(initialTags) } }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Примітка й теги") },
+        title = { Text(tr("Примітка й теги")) },
         text = {
-            Column {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 OutlinedTextField(
                     value = note,
                     onValueChange = { note = it },
-                    label = { Text("Клієнт, телефон, скарга…") },
+                    label = { Text(tr("Клієнт, телефон, скарга…")) },
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(Modifier.height(10.dp))
-                Text("Теги (що саме):", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(tr("Теги (що саме):"), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(4.dp))
                 PRESET_TAGS.chunked(3).forEach { rowTags ->
                     Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         rowTags.forEach { t ->
                             if (selected.contains(t)) {
-                                Button(onClick = { selected.remove(t) }, modifier = Modifier.weight(1f)) {
-                                    Text("#$t", maxLines = 1, style = MaterialTheme.typography.labelMedium)
+                                Button(onClick = { selected.remove(t) }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp)) {
+                                    FitText("#" + tr(t), style = MaterialTheme.typography.labelMedium)
                                 }
                             } else {
-                                OutlinedButton(onClick = { selected.add(t) }, modifier = Modifier.weight(1f)) {
-                                    Text("#$t", maxLines = 1, style = MaterialTheme.typography.labelMedium)
+                                OutlinedButton(onClick = { selected.add(t) }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 4.dp)) {
+                                    FitText("#" + tr(t), style = MaterialTheme.typography.labelMedium)
                                 }
                             }
                         }
@@ -839,8 +871,8 @@ private fun NoteDialog(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = { onSave(note, selected.toList()) }) { Text("Зберегти") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Скасувати") } },
+        confirmButton = { TextButton(onClick = { onSave(note, selected.toList()) }) { Text(tr("Зберегти")) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(tr("Скасувати")) } },
     )
 }
 
@@ -850,5 +882,5 @@ fun shareText(context: Context, text: String, subject: String) {
         putExtra(Intent.EXTRA_SUBJECT, subject)
         putExtra(Intent.EXTRA_TEXT, text)
     }
-    context.startActivity(Intent.createChooser(send, "Поділитися"))
+    context.startActivity(Intent.createChooser(send, tr("Поділитися")))
 }

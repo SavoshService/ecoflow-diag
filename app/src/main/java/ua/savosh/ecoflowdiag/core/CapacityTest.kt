@@ -129,8 +129,8 @@ class CapacityTest(val sn: String) {
         if (da.size == r.packs.size && da.isNotEmpty()) designAh = da.sum() / 1000.0
         val pw = r.packs.mapNotNull { it.passport?.wh?.toDouble() }
         if (pw.size == r.packs.size && pw.isNotEmpty()) passportWh = pw.sum()
-        chargeLimit = num(params, "ems.maxChargeSoc", "bms_emsStatus.maxChargeSoc") ?: chargeLimit
-        dischargeLimit = num(params, "ems.minDsgSoc", "bms_emsStatus.minDsgSoc") ?: dischargeLimit
+        chargeLimit = Analyzer.chargeLimit(params) ?: chargeLimit
+        dischargeLimit = Analyzer.dischargeLimit(params) ?: dischargeLimit
 
         val stage = when (phase) {
             CapPhase.CHARGE -> charge
@@ -211,58 +211,58 @@ class CapacityTest(val sn: String) {
     /** Застереження до точності тесту. */
     fun warnings(): List<String> {
         val out = ArrayList<String>()
-        chargeLimit?.let { if (it < 99.5) out.add("Ліміт заряду ${Analyzer.fmt0(it)}% — станція не зарядиться до 100%. Виставте 100% у застосунку EcoFlow перед тестом.") }
-        dischargeLimit?.let { if (it > 0.5) out.add("Нижній ліміт розряду ${Analyzer.fmt0(it)}% — станція зупиниться раніше нуля. Виставте 0% у застосунку EcoFlow.") }
-        charge.socStart?.let { if (phase != CapPhase.IDLE && it > 5) out.add("Заряд почався з ${Analyzer.fmt0(it)}%, а не з 0% — етап 1 покаже менше енергії, ніж уміщує батарея.") }
+        chargeLimit?.let { if (it < 99.5) out.add(tr("Ліміт заряду {0}% — станція не зарядиться до 100%. Виставте 100% у застосунку EcoFlow перед тестом.", Analyzer.fmt0(it))) }
+        dischargeLimit?.let { if (it > 0.5) out.add(tr("Нижній ліміт розряду {0}% — станція зупиниться раніше нуля. Виставте 0% у застосунку EcoFlow.", Analyzer.fmt0(it))) }
+        charge.socStart?.let { if (phase != CapPhase.IDLE && it > 5) out.add(tr("Заряд почався з {0}%, а не з 0% — етап 1 покаже менше енергії, ніж уміщує батарея.", Analyzer.fmt0(it))) }
         if (phase == CapPhase.DONE) {
-            discharge.socStart?.let { if (it < 95) out.add("Розряд почався з ${Analyzer.fmt0(it)}%, а не зі 100% — результат неповний.") }
-            discharge.socEnd?.let { if (it > 5) out.add("Розряд закінчився на ${Analyzer.fmt0(it)}%, а не на 0% — результат неповний.") }
+            discharge.socStart?.let { if (it < 95) out.add(tr("Розряд почався з {0}%, а не зі 100% — результат неповний.", Analyzer.fmt0(it))) }
+            discharge.socEnd?.let { if (it > 5) out.add(tr("Розряд закінчився на {0}%, а не на 0% — результат неповний.", Analyzer.fmt0(it))) }
         }
-        for ((name, st) in listOf("заряду" to charge, "розряду" to discharge)) {
-            if (st.gapMs > 5 * 60_000) out.add("Під час $name зв'язок пропадав разом на ${st.gapMs / 60_000} хв — цей час не врахований, результат занижений.")
+        for ((name, st) in listOf(tr("заряду") to charge, tr("розряду") to discharge)) {
+            if (st.gapMs > 5 * 60_000) out.add(tr("Під час {0} зв'язок пропадав разом на {1} хв — цей час не врахований, результат занижений.", name, st.gapMs / 60_000))
         }
         return out
     }
 
     fun summaryText(model: String?, dateText: String): String {
         val sb = StringBuilder()
-        sb.appendLine("SAVOSH SERVICE — тест реальної ємності")
-        sb.appendLine("Дата: $dateText")
-        sb.appendLine("Станція: ${model ?: "?"} · SN $sn")
+        sb.appendLine(tr("SAVOSH SERVICE — тест реальної ємності"))
+        sb.appendLine(tr("Дата: {0}", dateText))
+        sb.appendLine(tr("Станція: {0} · SN {1}", model ?: "?", sn))
         sb.appendLine()
-        sb.appendLine("Етап 1 — заряд: ${stageLine(charge)}")
-        if (phase == CapPhase.DONE || phase == CapPhase.DISCHARGE) sb.appendLine("Етап 2 — розряд: ${stageLine(discharge)}")
+        sb.appendLine(tr("Етап 1 — заряд: {0}", stageLine(charge)))
+        if (phase == CapPhase.DONE || phase == CapPhase.DISCHARGE) sb.appendLine(tr("Етап 2 — розряд: {0}", stageLine(discharge)))
         measuredWh?.let { m ->
             sb.appendLine()
-            sb.append("ВИМІРЯНА ЄМНІСТЬ: ≈${Analyzer.fmt0(m)} Вт·год (${Analyzer.fmt1(discharge.ah)} А·год)")
+            sb.append(tr("ВИМІРЯНА ЄМНІСТЬ: ≈{0} Вт·год ({1} А·год)", Analyzer.fmt0(m), Analyzer.fmt1(discharge.ah)))
             sohMeasured?.let { s ->
-                sb.append(" — ${Analyzer.fmt0(s)}% від номіналу BMS")
+                sb.append(tr(" — {0}% від номіналу BMS", Analyzer.fmt0(s)))
                 val ah = designAh
                 val wh = designWh
-                if (ah != null) sb.append(" ${Analyzer.fmt1(ah)} А·год") else if (wh != null) sb.append(" ${Analyzer.fmt0(wh)} Вт·год")
+                if (ah != null) sb.append(tr(" {0} А·год", Analyzer.fmt1(ah))) else if (wh != null) sb.append(tr(" {0} Вт·год", Analyzer.fmt0(wh)))
             }
             sb.appendLine()
-            Health.of(sohMeasured)?.let { sb.appendLine("Оцінка батареї: ${it.report}") }
-            passportWh?.let { sb.appendLine("За паспортом: ${Analyzer.fmt0(it)} Вт·год") }
-            extrapolatedWh?.let { sb.appendLine("Оцінка на повні 100%: ≈${Analyzer.fmt0(it)} Вт·год") }
-            roundTrip?.let { sb.appendLine("Ефективність циклу (віддано / прийнято): ${Analyzer.fmt0(it)}%") }
+            Health.of(sohMeasured)?.let { sb.appendLine(tr("Оцінка батареї: {0}", it.report)) }
+            passportWh?.let { sb.appendLine(tr("За паспортом: {0} Вт·год", Analyzer.fmt0(it))) }
+            extrapolatedWh?.let { sb.appendLine(tr("Оцінка на повні 100%: ≈{0} Вт·год", Analyzer.fmt0(it))) }
+            roundTrip?.let { sb.appendLine(tr("Ефективність циклу (віддано / прийнято): {0}%", Analyzer.fmt0(it))) }
         }
         val w = warnings()
         if (w.isNotEmpty()) {
             sb.appendLine()
-            sb.appendLine("Застереження:")
+            sb.appendLine(tr("Застереження:"))
             for (x in w) sb.appendLine("  • $x")
         }
         sb.appendLine()
-        sb.appendLine("Енергію пораховано за напругою й струмом BMS; точність близько ±3–5%.")
+        sb.appendLine(tr("Енергію пораховано за напругою й струмом BMS; точність близько ±3–5%."))
         return sb.toString()
     }
 
     private fun stageLine(st: CapStage): String {
         val socTxt = "${st.socStart?.let { Analyzer.fmt0(it) } ?: "?"}% → ${(st.socEnd ?: soc)?.let { Analyzer.fmt0(it) } ?: "?"}%"
         val dur = durationText(if (st.endMs > 0) st.durationMs else if (st.startMs > 0) lastDataMs - st.startMs else 0)
-        val station = if (st.stationWh > 0) ", з боку станції ≈${Analyzer.fmt0(st.stationWh)} Вт·год" else ""
-        return "≈${Analyzer.fmt0(st.wh)} Вт·год (${Analyzer.fmt1(st.ah)} А·год), $socTxt, $dur$station"
+        val station = if (st.stationWh > 0) tr(", з боку станції ≈{0} Вт·год", Analyzer.fmt0(st.stationWh)) else ""
+        return tr("≈{0} Вт·год ({1} А·год), {2}, {3}{4}", Analyzer.fmt0(st.wh), Analyzer.fmt1(st.ah), socTxt, dur, station)
     }
 
     companion object {
@@ -273,7 +273,7 @@ class CapacityTest(val sn: String) {
 
         fun durationText(ms: Long): String {
             val m = ms / 60_000
-            return if (m >= 60) "${m / 60} год ${m % 60} хв" else "$m хв"
+            return if (m >= 60) tr("{0} год {1} хв", m / 60, m % 60) else tr("{0} хв", m)
         }
 
         private fun num(p: Map<String, Any?>, vararg keys: String): Double? =

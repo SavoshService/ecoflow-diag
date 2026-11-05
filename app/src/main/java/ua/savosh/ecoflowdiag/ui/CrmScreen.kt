@@ -1,5 +1,9 @@
 package ua.savosh.ecoflowdiag.ui
 
+import androidx.activity.compose.BackHandler
+import ua.savosh.ecoflowdiag.core.localize
+import ua.savosh.ecoflowdiag.core.tk
+import ua.savosh.ecoflowdiag.core.tr
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -51,6 +55,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
@@ -96,13 +101,15 @@ fun CrmScreen(vm: AppViewModel) {
                     // «Назад» лише з корзини (повертає до замовлень); решта вкладок — головні розділи
                     if (tab == 3) {
                         IconButton(onClick = { vm.back() }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "До замовлень")
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr("До замовлень"))
                         }
+                    } else {
+                        LanguageButton(vm)
                     }
                 },
                 title = {
-                    Text(
-                        when (tab) { 1 -> "Склад"; 2 -> "Фінанси"; 3 -> "Корзина"; else -> "Замовлення" },
+                    FitText(
+                        when (tab) { 1 -> tr("Склад"); 2 -> tr("Фінанси"); 3 -> tr("Корзина"); else -> tr("Замовлення") },
                         fontWeight = FontWeight.Bold,
                     )
                 },
@@ -123,13 +130,13 @@ fun CrmScreen(vm: AppViewModel) {
             when (tab) {
                 0 -> ExtendedFloatingActionButton(
                     onClick = { formOrderId = null; formOpen = true },
-                    icon = { Icon(Icons.Filled.Add, contentDescription = null) },
-                    text = { Text("Нове замовлення") },
+                    icon = { Icon(Icons.Filled.Add, contentDescription = tr("Нове замовлення")) },
+                    text = { Text(tr("Нове замовлення")) },
                 )
                 1 -> ExtendedFloatingActionButton(
                     onClick = { partFormId = null; partFormOpen = true },
-                    icon = { Icon(Icons.Filled.Add, contentDescription = null) },
-                    text = { Text("Нова деталь") },
+                    icon = { Icon(Icons.Filled.Add, contentDescription = tr("Нова деталь")) },
+                    text = { Text(tr("Нова деталь")) },
                 )
             }
         },
@@ -152,9 +159,8 @@ private fun OrdersTab(vm: AppViewModel, onEdit: (Long) -> Unit) {
     val list = vm.activeOrders()
     if (list.isEmpty()) {
         EmptyHint(
-            "Поки що немає замовлень",
-            "Натисніть «Нове замовлення», щоб прийняти станцію в ремонт. " +
-                "Клієнт, пристрій, статус і суми зберігаються лише у вашому телефоні.",
+            tr("Поки що немає замовлень"),
+            tr("Натисніть «Нове замовлення», щоб прийняти станцію в ремонт. Клієнт, пристрій, статус і суми зберігаються лише у вашому телефоні."),
         )
         return
     }
@@ -189,12 +195,12 @@ private fun OrderCard(o: Order, onEdit: () -> Unit, onStatus: (String) -> Unit, 
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.width(8.dp))
-                Text(st.emoji + " " + st.label, style = MaterialTheme.typography.labelMedium, color = statusColor(o.status))
+                Text(st.label, style = MaterialTheme.typography.labelMedium, color = statusColor(o.status))
                 Spacer(Modifier.weight(1f))
                 Text(OrderChannel.of(o.channel).tag, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Spacer(Modifier.height(8.dp))
-            Text(o.clientName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(localize(o.clientName), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             val device = listOf(o.deviceType, o.model).filter { it.isNotBlank() }.joinToString(" · ")
             if (device.isNotBlank()) {
                 Text(device, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -204,16 +210,14 @@ private fun OrderCard(o: Order, onEdit: () -> Unit, onStatus: (String) -> Unit, 
             }
             if (o.description.isNotBlank()) {
                 Spacer(Modifier.height(4.dp))
-                Text(o.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface, maxLines = 3)
+                Text(o.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface, maxLines = 3, overflow = TextOverflow.Ellipsis)
             }
             if (o.totalCost > 0 || o.partsCost > 0) {
                 Spacer(Modifier.height(8.dp))
-                Row {
-                    MoneyPill("Запчастини", Crm.money(o.partsCost), MaterialTheme.colorScheme.onSurfaceVariant)
-                    Spacer(Modifier.width(8.dp))
-                    MoneyPill("Оплата", Crm.money(o.totalCost), MaterialTheme.colorScheme.onSurface)
-                    Spacer(Modifier.width(8.dp))
-                    MoneyPill("Прибуток", Crm.money(Crm.orderProfit(o)), statusColor("green"))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MoneyPill(tr("Запчастини"), Crm.money(o.partsCost), MaterialTheme.colorScheme.onSurfaceVariant, Modifier.weight(1f))
+                    MoneyPill(tr("Оплата"), Crm.money(o.totalCost), MaterialTheme.colorScheme.onSurface, Modifier.weight(1f))
+                    MoneyPill(tr("Прибуток"), Crm.money(Crm.orderProfit(o)), statusColor("green"), Modifier.weight(1f))
                 }
             }
             Spacer(Modifier.height(10.dp))
@@ -225,10 +229,10 @@ private fun OrderCard(o: Order, onEdit: () -> Unit, onStatus: (String) -> Unit, 
             }
             Spacer(Modifier.height(6.dp))
             Row {
-                TextButton(onClick = onEdit) { Text("✎ Редагувати") }
+                TextButton(onClick = onEdit) { FitText(tr("✎ Редагувати")) }
                 Spacer(Modifier.weight(1f))
                 TextButton(onClick = { confirmTrash = true }) {
-                    Text("🗑 У корзину", color = statusColor("red"))
+                    FitText(tr("🗑 У корзину"), color = statusColor("red"))
                 }
             }
         }
@@ -236,10 +240,10 @@ private fun OrderCard(o: Order, onEdit: () -> Unit, onStatus: (String) -> Unit, 
     if (confirmTrash) {
         AlertDialog(
             onDismissRequest = { confirmTrash = false },
-            title = { Text("У корзину?") },
-            text = { Text("Замовлення ${Crm.orderNo(o.id)} переміститься в корзину. Звідти його можна відновити.") },
-            confirmButton = { TextButton(onClick = { confirmTrash = false; onTrash() }) { Text("У корзину") } },
-            dismissButton = { TextButton(onClick = { confirmTrash = false }) { Text("Скасувати") } },
+            title = { Text(tr("У корзину?")) },
+            text = { DialogText(tr("Замовлення {0} переміститься в корзину. Звідти його можна відновити.", Crm.orderNo(o.id))) },
+            confirmButton = { TextButton(onClick = { confirmTrash = false; onTrash() }) { Text(tr("У корзину")) } },
+            dismissButton = { TextButton(onClick = { confirmTrash = false }) { Text(tr("Скасувати")) } },
         )
     }
 }
@@ -255,12 +259,8 @@ private fun StatusChip(s: OrderStatus, selected: Boolean, onClick: () -> Unit, m
             .padding(vertical = 8.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            s.emoji,
-            style = MaterialTheme.typography.bodyMedium,
-            color = if (selected) c else MaterialTheme.colorScheme.onSurfaceVariant,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-        )
+        // Кольорова крапка, а не емодзі: на старих Android жовтого й зеленого кола у шрифті немає.
+        StatusDot(s.key)
     }
 }
 
@@ -270,9 +270,9 @@ private fun StatusDot(key: String) {
 }
 
 @Composable
-private fun MoneyPill(label: String, value: String, color: Color) {
-    Column {
-        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+private fun MoneyPill(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
+    Column(modifier) {
+        FitText(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(value, style = MaterialTheme.typography.bodyMedium, fontFamily = Mono, color = color, fontWeight = FontWeight.SemiBold)
     }
 }
@@ -291,37 +291,37 @@ private fun AccountingTab(vm: AppViewModel) {
     ) {
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                PeriodChip("Увесь час", period == "all", { period = "all" }, Modifier.weight(1f))
-                PeriodChip("Цей місяць", period == "month", { period = "month" }, Modifier.weight(1f))
-                PeriodChip("Мин. місяць", period == "prevMonth", { period = "prevMonth" }, Modifier.weight(1f))
+                PeriodChip(tr("Увесь час"), period == "all", { period = "all" }, Modifier.weight(1f))
+                PeriodChip(tr("Цей місяць"), period == "month", { period = "month" }, Modifier.weight(1f))
+                PeriodChip(tr("Мин. місяць"), period == "prevMonth", { period = "prevMonth" }, Modifier.weight(1f))
             }
         }
         if (!vm.simpleAccounting) {
             item {
-                StatCard("🔧 Витрачено на запчастини", Crm.money(stats.parts), MaterialTheme.colorScheme.onSurfaceVariant,
-                    "Рахується окремо — це ваші витрати на деталі для готових замовлень.")
+                StatCard(tr("🔧 Витрачено на запчастини"), Crm.money(stats.parts), MaterialTheme.colorScheme.onSurfaceVariant,
+                    tr("Рахується окремо — це ваші витрати на деталі для готових замовлень."))
             }
             item {
-                StatCard("💵 Оборот (брудний дохід)", Crm.money(stats.revenue), MaterialTheme.colorScheme.onSurface,
-                    "Сума всіх оплат за готові (🟢) замовлення за період.")
+                StatCard(tr("💵 Оборот (брудний дохід)"), Crm.money(stats.revenue), MaterialTheme.colorScheme.onSurface,
+                    tr("Сума всіх оплат за готові замовлення за період."))
             }
         }
         item {
             val pct = vm.reservePercent
-            StatCard("✅ Чистий прибуток", Crm.money(stats.net), statusColor("green"),
-                if (pct > 0) "Оборот − запчастини (до відрахування ${fmtNum(pct)}%)."
-                else "Оборот − запчастини. Без жодних відрахувань.")
+            StatCard(tr("✅ Чистий прибуток"), Crm.money(stats.net), statusColor("green"),
+                if (pct > 0) tr("Оборот − запчастини (до відрахування {0}%).", fmtNum(pct))
+                else tr("Оборот − запчастини. Без жодних відрахувань."))
         }
         if (vm.reservePercent > 0) {
             item {
-                StatCard("📉 Після відрахування ${fmtNum(vm.reservePercent)}%",
+                StatCard(tr("📉 Після відрахування {0}%", fmtNum(vm.reservePercent)),
                     Crm.money(Crm.afterReserve(stats.net, vm.reservePercent)), MaterialTheme.colorScheme.primary,
-                    "Ваш власний відсоток (резерв / податок). Змінюється в налаштуваннях ⚙.")
+                    tr("Ваш власний відсоток (резерв / податок). Змінюється в налаштуваннях ⚙."))
             }
         }
         item {
             Text(
-                "Готових замовлень за період: ${stats.count}",
+                tr("Готових замовлень за період: {0}", stats.count),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp),
@@ -329,7 +329,7 @@ private fun AccountingTab(vm: AppViewModel) {
         }
         if (stats.orders.isNotEmpty()) {
             item {
-                Text("Деталізація", style = MaterialTheme.typography.labelMedium,
+                Text(tr("Деталізація"), style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp))
             }
             items(stats.orders.sortedByDescending { it.completedAt ?: it.updatedAt }, key = { it.id }) { o ->
@@ -339,10 +339,10 @@ private fun AccountingTab(vm: AppViewModel) {
                 ) {
                     Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text("${Crm.orderNo(o.id)} · ${o.clientName}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            Text("${Crm.orderNo(o.id)} · ${localize(o.clientName)}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                             val device = listOf(o.deviceType, o.model).filter { it.isNotBlank() }.joinToString(" · ")
                             if (device.isNotBlank()) Text(device, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text("Оплата ${Crm.money(o.totalCost)} · запч. ${Crm.money(o.partsCost)}",
+                            Text(tr("Оплата {0} · запч. {1}", Crm.money(o.totalCost), Crm.money(o.partsCost)),
                                 style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontFamily = Mono)
                         }
                         Text("+${Crm.money(Crm.orderProfit(o))}", style = MaterialTheme.typography.titleSmall,
@@ -355,7 +355,7 @@ private fun AccountingTab(vm: AppViewModel) {
 }
 
 @Composable
-private fun PeriodChip(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+private fun PeriodChip(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, dotColor: Color? = null) {
     val c = MaterialTheme.colorScheme.primary
     Box(
         modifier = modifier
@@ -365,9 +365,15 @@ private fun PeriodChip(label: String, selected: Boolean, onClick: () -> Unit, mo
             .padding(vertical = 10.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(label, style = MaterialTheme.typography.labelMedium,
-            color = if (selected) c else MaterialTheme.colorScheme.onSurfaceVariant,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal, textAlign = TextAlign.Center)
+        Row(Modifier.padding(horizontal = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (dotColor != null) {
+                Box(Modifier.size(9.dp).clip(CircleShape).background(dotColor))
+                Spacer(Modifier.width(4.dp))
+            }
+            FitText(label, style = MaterialTheme.typography.labelMedium,
+                color = if (selected) c else MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal, textAlign = TextAlign.Center)
+        }
     }
 }
 
@@ -395,7 +401,7 @@ private fun TrashTab(vm: AppViewModel) {
     val list = vm.trashedOrders()
     var confirmEmpty by remember { mutableStateOf(false) }
     if (list.isEmpty()) {
-        EmptyHint("Корзина порожня", "Видалені замовлення зберігаються тут, доки ви їх не відновите або не видалите остаточно.")
+        EmptyHint(tr("Корзина порожня"), tr("Видалені замовлення зберігаються тут, доки ви їх не відновите або не видалите остаточно."))
         return
     }
     LazyColumn(
@@ -405,31 +411,31 @@ private fun TrashTab(vm: AppViewModel) {
     ) {
         item {
             OutlinedButton(onClick = { confirmEmpty = true }, modifier = Modifier.fillMaxWidth()) {
-                Text("🗑 Очистити корзину (${list.size})", color = statusColor("red"))
+                Text(tr("🗑 Очистити корзину ({0})", list.size), color = statusColor("red"))
             }
         }
         items(list, key = { it.id }) { o ->
             var confirmDel by remember { mutableStateOf(false) }
             Card(shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
                 Column(Modifier.padding(14.dp)) {
-                    Text("${Crm.orderNo(o.id)} · ${o.clientName}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    Text("${Crm.orderNo(o.id)} · ${localize(o.clientName)}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                     val device = listOf(o.deviceType, o.model).filter { it.isNotBlank() }.joinToString(" · ")
                     if (device.isNotBlank()) Text(device, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(6.dp))
                     Row {
-                        TextButton(onClick = { vm.restoreOrder(o.id) }) { Text("↩ Відновити") }
+                        TextButton(onClick = { vm.restoreOrder(o.id) }) { FitText(tr("↩ Відновити")) }
                         Spacer(Modifier.weight(1f))
-                        TextButton(onClick = { confirmDel = true }) { Text("Видалити назавжди", color = statusColor("red")) }
+                        TextButton(onClick = { confirmDel = true }) { FitText(tr("Видалити назавжди"), color = statusColor("red")) }
                     }
                 }
             }
             if (confirmDel) {
                 AlertDialog(
                     onDismissRequest = { confirmDel = false },
-                    title = { Text("Видалити назавжди?") },
-                    text = { Text("Замовлення ${Crm.orderNo(o.id)} буде стерто безповоротно.") },
-                    confirmButton = { TextButton(onClick = { confirmDel = false; vm.deleteOrderForever(o.id) }) { Text("Видалити") } },
-                    dismissButton = { TextButton(onClick = { confirmDel = false }) { Text("Скасувати") } },
+                    title = { Text(tr("Видалити назавжди?")) },
+                    text = { DialogText(tr("Замовлення {0} буде стерто безповоротно.", Crm.orderNo(o.id))) },
+                    confirmButton = { TextButton(onClick = { confirmDel = false; vm.deleteOrderForever(o.id) }) { Text(tr("Видалити")) } },
+                    dismissButton = { TextButton(onClick = { confirmDel = false }) { Text(tr("Скасувати")) } },
                 )
             }
         }
@@ -437,10 +443,10 @@ private fun TrashTab(vm: AppViewModel) {
     if (confirmEmpty) {
         AlertDialog(
             onDismissRequest = { confirmEmpty = false },
-            title = { Text("Очистити корзину?") },
-            text = { Text("Усі ${list.size} замовлень у корзині буде стерто безповоротно.") },
-            confirmButton = { TextButton(onClick = { confirmEmpty = false; vm.emptyTrash() }) { Text("Очистити") } },
-            dismissButton = { TextButton(onClick = { confirmEmpty = false }) { Text("Скасувати") } },
+            title = { Text(tr("Очистити корзину?")) },
+            text = { DialogText(tr("Усі {0} замовлень у корзині буде стерто безповоротно.", list.size)) },
+            confirmButton = { TextButton(onClick = { confirmEmpty = false; vm.emptyTrash() }) { Text(tr("Очистити")) } },
+            dismissButton = { TextButton(onClick = { confirmEmpty = false }) { Text(tr("Скасувати")) } },
         )
     }
 }
@@ -453,7 +459,7 @@ private fun OrderForm(vm: AppViewModel, orderId: Long?, onClose: () -> Unit) {
     val existing = vm.orderById(orderId)
     var deviceType by rememberSaveable { mutableStateOf(existing?.deviceType ?: "") }
     var model by rememberSaveable { mutableStateOf(existing?.model ?: "") }
-    var clientName by rememberSaveable { mutableStateOf(existing?.clientName?.takeIf { it != "Невідомо" } ?: "") }
+    var clientName by rememberSaveable { mutableStateOf(existing?.clientName?.takeIf { it != tk("Невідомо") } ?: "") }
     var phone by rememberSaveable { mutableStateOf(existing?.phone ?: "") }
     var channel by rememberSaveable { mutableStateOf(existing?.channel ?: "call") }
     var description by rememberSaveable { mutableStateOf(existing?.description ?: "") }
@@ -465,34 +471,35 @@ private fun OrderForm(vm: AppViewModel, orderId: Long?, onClose: () -> Unit) {
     val total = parseNum(totalCost)
     val profit = total - parts
 
+    BackHandler(onBack = onClose)
     Scaffold(
         topBar = {
             TopAppBar(
                 navigationIcon = {
                     IconButton(onClick = onClose) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr("Назад"))
                     }
                 },
-                title = { Text(if (orderId == null) "Нове замовлення" else "Замовлення ${Crm.orderNo(orderId)}", fontWeight = FontWeight.Bold) },
+                title = { FitText(if (orderId == null) tr("Нове замовлення") else tr("Замовлення {0}", Crm.orderNo(orderId)), fontWeight = FontWeight.Bold) },
             )
         },
     ) { pad ->
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(pad),
+            modifier = Modifier.fillMaxSize().formPadding(pad),
             contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 32.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
                 OutlinedTextField(clientName, { clientName = it }, Modifier.fillMaxWidth(),
-                    label = { Text("Ім'я клієнта") }, singleLine = true)
+                    label = { Text(tr("Ім'я клієнта")) }, singleLine = true)
             }
             item {
                 OutlinedTextField(phone, { phone = it }, Modifier.fillMaxWidth(),
-                    label = { Text("Телефон") }, singleLine = true,
+                    label = { Text(tr("Телефон")) }, singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone))
             }
             item {
-                Text("Канал звернення", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(tr("Канал звернення"), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(6.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     for (ch in OrderChannel.entries) {
@@ -503,38 +510,38 @@ private fun OrderForm(vm: AppViewModel, orderId: Long?, onClose: () -> Unit) {
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedTextField(deviceType, { deviceType = it }, Modifier.weight(1f),
-                        label = { Text("Тип (АКБ, станція…)") }, singleLine = true)
+                        label = { FitText(tr("Тип (АКБ, станція…)")) }, singleLine = true)
                     OutlinedTextField(model, { model = it }, Modifier.weight(1f),
-                        label = { Text("Модель") }, singleLine = true)
+                        label = { FitText(tr("Модель")) }, singleLine = true)
                 }
             }
             item {
                 OutlinedTextField(description, { description = it }, Modifier.fillMaxWidth(),
-                    label = { Text("Опис несправності / робіт") }, maxLines = 5)
+                    label = { Text(tr("Опис несправності / робіт")) }, maxLines = 5)
             }
             item {
-                Text("Статус", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(tr("Статус"), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Spacer(Modifier.height(6.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     for (s in OrderStatus.entries) {
-                        PeriodChip(s.emoji + " " + s.label, status == s.key, { status = s.key }, Modifier.weight(1f))
+                        PeriodChip(s.label, status == s.key, { status = s.key }, Modifier.weight(1f), dotColor = statusColor(s.key))
                     }
                 }
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedTextField(partsCost, { partsCost = it }, Modifier.weight(1f),
-                        label = { Text("Запчастини, ₴") }, singleLine = true,
+                        label = { FitText(tr("Запчастини, ₴")) }, singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                     OutlinedTextField(totalCost, { totalCost = it }, Modifier.weight(1f),
-                        label = { Text("Оплата клієнта, ₴") }, singleLine = true,
+                        label = { FitText(tr("Оплата клієнта, ₴")) }, singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                 }
             }
             item {
                 Card(shape = RoundedCornerShape(12.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
                     Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("Чистий прибуток (оплата − запчастини)", Modifier.weight(1f),
+                        Text(tr("Чистий прибуток (оплата − запчастини)"), Modifier.weight(1f),
                             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Text(Crm.money(profit), style = MaterialTheme.typography.titleMedium, fontFamily = Mono,
                             fontWeight = FontWeight.Bold, color = statusColor("green"))
@@ -547,14 +554,14 @@ private fun OrderForm(vm: AppViewModel, orderId: Long?, onClose: () -> Unit) {
                         vm.saveOrder(orderId, deviceType, model, clientName, phone, channel, description, status, parts, total)
                         onClose()
                     },
-                    icon = { Icon(Icons.Filled.Add, contentDescription = null) },
-                    text = { Text(if (orderId == null) "Зберегти замовлення" else "Зберегти зміни") },
+                    icon = { Icon(Icons.Filled.Add, contentDescription = tr("Зберегти")) },
+                    text = { Text(if (orderId == null) tr("Зберегти замовлення") else tr("Зберегти зміни")) },
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
             item {
                 Text(
-                    "📷 Фото пристрою додамо в наступному оновленні.",
+                    tr("📷 Фото пристрою додамо в наступному оновленні."),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
@@ -575,17 +582,17 @@ private fun PartsTab(vm: AppViewModel, onEdit: (Long) -> Unit) {
         OutlinedTextField(
             value = query, onValueChange = { query = it },
             modifier = Modifier.fillMaxWidth().padding(16.dp, 8.dp, 16.dp, 4.dp),
-            label = { Text("🔍 Пошук: назва, ящик, код") }, singleLine = true,
+            label = { Text(tr("🔍 Пошук: назва, ящик, код")) }, singleLine = true,
         )
         if (vm.parts.isEmpty()) {
             EmptyHint(
-                "На складі порожньо",
-                "Натисніть «Нова деталь», щоб вести перелік усіх деталей майстерні: кількість, № ящика/полиці, QR або штрих-код.",
+                tr("На складі порожньо"),
+                tr("Натисніть «Нова деталь», щоб вести перелік усіх деталей майстерні: кількість, № ящика/полиці, QR або штрих-код."),
             )
             return
         }
         if (list.isEmpty()) {
-            EmptyHint("Нічого не знайдено", "Спробуйте інший запит.")
+            EmptyHint(tr("Нічого не знайдено"), tr("Спробуйте інший запит."))
             return
         }
         LazyColumn(
@@ -609,7 +616,7 @@ private fun PartCard(p: PartItem, onEdit: () -> Unit, onPlus: () -> Unit, onMinu
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(p.name, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(localize(p.name), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 // Лічильник кількості
                 Box(Modifier.size(32.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceContainerHigh)
                     .clickable(onClick = onMinus), contentAlignment = Alignment.Center) {
@@ -631,7 +638,7 @@ private fun PartCard(p: PartItem, onEdit: () -> Unit, onPlus: () -> Unit, onMinu
             }
             if (p.note.isNotBlank()) {
                 Spacer(Modifier.height(4.dp))
-                Text(p.note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface, maxLines = 3)
+                Text(p.note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface, maxLines = 3, overflow = TextOverflow.Ellipsis)
             }
             if (p.price > 0) {
                 Spacer(Modifier.height(4.dp))
@@ -645,7 +652,7 @@ private fun PartCard(p: PartItem, onEdit: () -> Unit, onPlus: () -> Unit, onMinu
 @Composable
 private fun PartForm(vm: AppViewModel, partId: Long?, onClose: () -> Unit) {
     val existing = vm.partById(partId)
-    var name by rememberSaveable { mutableStateOf(existing?.name ?: "") }
+    var name by rememberSaveable { mutableStateOf(existing?.name?.takeIf { it != tk("Деталь") } ?: "") }
     var qty by rememberSaveable { mutableStateOf(existing?.quantity?.toString() ?: "") }
     var location by rememberSaveable { mutableStateOf(existing?.location ?: "") }
     var code by rememberSaveable { mutableStateOf(existing?.code ?: "") }
@@ -657,13 +664,14 @@ private fun PartForm(vm: AppViewModel, partId: Long?, onClose: () -> Unit) {
         result.contents?.let { code = it.trim() }
     }
 
+    BackHandler(onBack = onClose)
     Scaffold(
         topBar = {
             TopAppBar(
                 navigationIcon = {
-                    IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад") }
+                    IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr("Назад")) }
                 },
-                title = { Text(if (partId == null) "Нова деталь" else "Деталь", fontWeight = FontWeight.Bold) },
+                title = { FitText(if (partId == null) tr("Нова деталь") else tr("Деталь"), fontWeight = FontWeight.Bold) },
                 actions = {
                     if (partId != null) {
                         IconButton(onClick = { confirmDel = true }) { Text("🗑", style = MaterialTheme.typography.titleMedium) }
@@ -673,32 +681,32 @@ private fun PartForm(vm: AppViewModel, partId: Long?, onClose: () -> Unit) {
         },
     ) { pad ->
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(pad),
+            modifier = Modifier.fillMaxSize().formPadding(pad),
             contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 32.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
                 OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(),
-                    label = { Text("Назва деталі") }, singleLine = true)
+                    label = { Text(tr("Назва деталі")) }, singleLine = true)
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedTextField(qty, { qty = it.filter { c -> c.isDigit() } }, Modifier.weight(1f),
-                        label = { Text("Кількість") }, singleLine = true,
+                        label = { FitText(tr("Кількість")) }, singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                     OutlinedTextField(location, { location = it }, Modifier.weight(1f),
-                        label = { Text("№ ящика / полиці") }, singleLine = true)
+                        label = { FitText(tr("№ ящика / полиці")) }, singleLine = true)
                 }
             }
             item {
                 OutlinedTextField(
                     code, { code = it }, Modifier.fillMaxWidth(),
-                    label = { Text("QR / штрих-код") }, singleLine = true,
+                    label = { Text(tr("QR / штрих-код")) }, singleLine = true,
                     trailingIcon = {
                         TextButton(onClick = {
                             scanLauncher.launch(
                                 ScanOptions()
-                                    .setPrompt("Наведіть на QR / штрих-код деталі або ящика")
+                                    .setPrompt(tr("Наведіть на QR / штрих-код деталі або ящика"))
                                     .setBeepEnabled(true)
                                     .setOrientationLocked(false),
                             )
@@ -708,11 +716,11 @@ private fun PartForm(vm: AppViewModel, partId: Long?, onClose: () -> Unit) {
             }
             item {
                 OutlinedTextField(note, { note = it }, Modifier.fillMaxWidth(),
-                    label = { Text("Примітка (аналоги, донор, де купити…)") }, maxLines = 5)
+                    label = { Text(tr("Примітка (аналоги, донор, де купити…)")) }, maxLines = 5)
             }
             item {
                 OutlinedTextField(price, { price = it }, Modifier.fillMaxWidth(),
-                    label = { Text("Орієнтовна ціна, ₴ (необовʼязково)") }, singleLine = true,
+                    label = { Text(tr("Орієнтовна ціна, ₴ (необовʼязково)")) }, singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
             }
             item {
@@ -721,8 +729,8 @@ private fun PartForm(vm: AppViewModel, partId: Long?, onClose: () -> Unit) {
                         vm.savePart(partId, name, qty.toIntOrNull() ?: 0, location, code, note, parseNum(price))
                         onClose()
                     },
-                    icon = { Icon(Icons.Filled.Add, contentDescription = null) },
-                    text = { Text(if (partId == null) "Додати на склад" else "Зберегти") },
+                    icon = { Icon(Icons.Filled.Add, contentDescription = tr("Зберегти")) },
+                    text = { Text(if (partId == null) tr("Додати на склад") else tr("Зберегти")) },
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -731,10 +739,10 @@ private fun PartForm(vm: AppViewModel, partId: Long?, onClose: () -> Unit) {
     if (confirmDel && partId != null) {
         AlertDialog(
             onDismissRequest = { confirmDel = false },
-            title = { Text("Видалити деталь?") },
-            text = { Text("«${existing?.name}» буде стерто зі складу.") },
-            confirmButton = { TextButton(onClick = { confirmDel = false; vm.deletePart(partId); onClose() }) { Text("Видалити") } },
-            dismissButton = { TextButton(onClick = { confirmDel = false }) { Text("Скасувати") } },
+            title = { Text(tr("Видалити деталь?")) },
+            text = { DialogText(tr("«{0}» буде стерто зі складу.", existing?.name)) },
+            confirmButton = { TextButton(onClick = { confirmDel = false; vm.deletePart(partId); onClose() }) { Text(tr("Видалити")) } },
+            dismissButton = { TextButton(onClick = { confirmDel = false }) { Text(tr("Скасувати")) } },
         )
     }
 }
@@ -746,39 +754,41 @@ private fun PartForm(vm: AppViewModel, partId: Long?, onClose: () -> Unit) {
 private fun CrmSettingsScreen(vm: AppViewModel, onClose: () -> Unit) {
     var pct by rememberSaveable { mutableStateOf(if (vm.reservePercent == 0.0) "" else fmtNum(vm.reservePercent)) }
     var simple by remember { mutableStateOf(vm.simpleAccounting) }
+    val saveAndClose = {
+        vm.updateReservePercent(parseNum(pct))
+        vm.updateSimpleAccounting(simple)
+        onClose()
+    }
 
+    BackHandler(onBack = saveAndClose)
     Scaffold(
         topBar = {
             TopAppBar(
                 navigationIcon = {
-                    IconButton(onClick = {
-                        vm.updateReservePercent(parseNum(pct))
-                        vm.updateSimpleAccounting(simple)
-                        onClose()
-                    }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад") }
+                    IconButton(onClick = saveAndClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr("Назад")) }
                 },
-                title = { Text("⚙ Налаштування", fontWeight = FontWeight.Bold) },
+                title = { FitText(tr("⚙ Налаштування"), fontWeight = FontWeight.Bold) },
             )
         },
     ) { pad ->
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(pad),
+            modifier = Modifier.fillMaxSize().formPadding(pad),
             contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 32.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             item {
-                Text("Бухгалтерія", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(tr("Бухгалтерія"), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             item {
                 Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
                     Column(Modifier.padding(16.dp)) {
-                        Text("Мій відсоток відрахування", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                        Text(tr("Мій відсоток відрахування"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                         Spacer(Modifier.height(4.dp))
-                        Text("Резерв або податок, який віднімається від чистого прибутку. 0 — вимкнено.",
+                        Text(tr("Резерв або податок, який віднімається від чистого прибутку. 0 — вимкнено."),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Spacer(Modifier.height(10.dp))
                         OutlinedTextField(pct, { pct = it }, Modifier.fillMaxWidth(),
-                            label = { Text("Відсоток, %") }, singleLine = true,
+                            label = { Text(tr("Відсоток, %")) }, singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
                     }
                 }
@@ -787,8 +797,8 @@ private fun CrmSettingsScreen(vm: AppViewModel, onClose: () -> Unit) {
                 Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
                     Row(Modifier.fillMaxWidth().clickable { simple = !simple }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text("Спрощена бухгалтерія", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                            Text("Ховати «Запчастини» й «Оборот», показувати лише чистий прибуток.",
+                            Text(tr("Спрощена бухгалтерія"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                            Text(tr("Ховати «Запчастини» й «Оборот», показувати лише чистий прибуток."),
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Checkbox(checked = simple, onCheckedChange = { simple = it })
@@ -796,7 +806,7 @@ private fun CrmSettingsScreen(vm: AppViewModel, onClose: () -> Unit) {
                 }
             }
             item {
-                Text("Зміни зберігаються автоматично, щойно вийдете назад.",
+                Text(tr("Зміни зберігаються автоматично, щойно вийдете назад."),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
@@ -805,11 +815,7 @@ private fun CrmSettingsScreen(vm: AppViewModel, onClose: () -> Unit) {
 
 @Composable
 private fun EmptyHint(title: String, body: String) {
-    Column(
-        Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
+    CenteredScroll(Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 24.dp)) {
         Text(title, style = MaterialTheme.typography.titleMedium)
         Spacer(Modifier.height(8.dp))
         Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)

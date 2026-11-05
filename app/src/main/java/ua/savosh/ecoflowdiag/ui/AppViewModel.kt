@@ -1,6 +1,8 @@
 package ua.savosh.ecoflowdiag.ui
 
+import ua.savosh.ecoflowdiag.core.tr
 import android.app.Application
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -15,6 +17,10 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import ua.savosh.ecoflowdiag.core.Analyzer
+import ua.savosh.ecoflowdiag.core.AppLang
+import ua.savosh.ecoflowdiag.core.I18n
+import ua.savosh.ecoflowdiag.core.localize
+import ua.savosh.ecoflowdiag.core.tk
 import ua.savosh.ecoflowdiag.core.BalanceCheck
 import ua.savosh.ecoflowdiag.core.CellSnapshot
 import ua.savosh.ecoflowdiag.core.LogEntry
@@ -28,7 +34,6 @@ import ua.savosh.ecoflowdiag.core.CodeEvent
 import ua.savosh.ecoflowdiag.core.CodeHistory
 import ua.savosh.ecoflowdiag.core.CodeTracker
 import ua.savosh.ecoflowdiag.core.Gen3Decoder
-import ua.savosh.ecoflowdiag.core.Generation
 import ua.savosh.ecoflowdiag.core.MessageDecoder
 import ua.savosh.ecoflowdiag.core.Models
 import android.content.Intent
@@ -53,7 +58,8 @@ import android.content.Context
 import java.io.File
 import ua.savosh.ecoflowdiag.net.ApiException
 import ua.savosh.ecoflowdiag.net.ApkUpdater
-import ua.savosh.ecoflowdiag.net.EcoflowApi
+import ua.savosh.ecoflowdiag.net.AppIntegrity
+import ua.savosh.ecoflowdiag.net.CloudSession
 import ua.savosh.ecoflowdiag.net.EcoflowAuth
 import ua.savosh.ecoflowdiag.net.EcoflowMqtt
 import ua.savosh.ecoflowdiag.net.GoogleDrive
@@ -62,8 +68,9 @@ import ua.savosh.ecoflowdiag.core.EcoflowCodes
 import ua.savosh.ecoflowdiag.core.Indicator
 import ua.savosh.ecoflowdiag.core.Level
 import ua.savosh.ecoflowdiag.data.SavedReport
-import ua.savosh.ecoflowdiag.net.MqttAuthException
-import ua.savosh.ecoflowdiag.net.MqttCreds
+import ua.savosh.ecoflowdiag.net.LinkListener
+import ua.savosh.ecoflowdiag.net.LoginRejected
+import ua.savosh.ecoflowdiag.net.StationLink
 import ua.savosh.ecoflowdiag.net.UpdateInfo
 import ua.savosh.ecoflowdiag.net.Updater
 import java.text.SimpleDateFormat
@@ -84,6 +91,38 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private val prefs = Prefs(app)
     private val appCtx: Context = app
 
+    init {
+        // Першим ділом: нижче вже є тексти, що залежать від мови.
+        I18n.lang = prefs.appLang
+    }
+
+    /** Мова застосунку: екран перемальовується при її зміні (див. App у MainActivity). */
+    // Прокрутка й фільтр списку станцій не скидаються, коли повертаєшся з екрана станції.
+    val stationsListState = LazyListState()
+    var stationQuery by mutableStateOf("")
+    var stationFilter by mutableStateOf(StFilter.ALL)
+
+    var appLang by mutableStateOf(I18n.lang)
+        private set
+
+    fun setLanguage(l: AppLang) {
+        if (l == appLang) return
+        I18n.lang = l
+        appLang = l
+        prefs.appLang = l
+        // Тексти, вже складені старою мовою, перекладати немає сенсу: вони оновляться самі.
+        refreshAllStatus = ""
+        gdStatus = null
+        updateError = null
+        loginError = null
+        if (store.size() > 0) recompute()
+        capTick++
+        balTick++
+    }
+
+    /** Реліз підписано чужим ключем: на екрані входу буде попередження. */
+    val foreignBuild: Boolean = AppIntegrity.isForeignBuild(app)
+
     var screen by mutableStateOf(Screen.LOGIN)
         private set
 
@@ -98,7 +137,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         private set
     var auth by mutableStateOf<EcoflowAuth?>(null)
         private set
-    private var creds: MqttCreds? = null
 
     // ---------------- станції
     val stations = mutableStateListOf<StationEntry>()
@@ -289,7 +327,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         totalCost: Double,
     ): Long {
         val now = System.currentTimeMillis()
-        val name = clientName.trim().ifBlank { "Невідомо" }
+        val name = clientName.trim().ifBlank { tk("Невідомо") }
         if (id == null) {
             val newId = prefs.nextOrderId
             prefs.nextOrderId = newId + 1
@@ -413,7 +451,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         price: Double,
     ): Long {
         val now = System.currentTimeMillis()
-        val nm = name.trim().ifBlank { "Деталь" }
+        val nm = name.trim().ifBlank { tk("Деталь") }
         if (id == null) {
             val newId = prefs.nextPartId
             prefs.nextPartId = newId + 1
@@ -460,10 +498,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun allArticles(): List<Article> = KnowledgeSeed.OFFICIAL + userArticles
 
     /** Назви розділів (унікальні, за абеткою). */
-    fun kbSections(): List<String> = allArticles().map { it.section.ifBlank { "Загальне" } }.distinct().sorted()
+    fun kbSections(): List<String> = allArticles().map { sectionName(it) }.distinct().sorted()
+
+    /** Назва розділу поточною мовою: власні розділи майстра лишаються як написані. */
+    private fun sectionName(a: Article): String = localize(a.section.ifBlank { tk("Загальне") })
 
     fun articlesIn(section: String): List<Article> =
-        allArticles().filter { it.section.ifBlank { "Загальне" } == section }.sortedByDescending { it.updatedAt }
+        allArticles().filter { sectionName(it) == section }.sortedByDescending { it.updatedAt }
 
     fun articleById(id: Long?): Article? = id?.let { allArticles().firstOrNull { a -> a.id == it } }
 
@@ -483,7 +524,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             savedId = prefs.nextArticleId
             prefs.nextArticleId = savedId + 1
             userArticles.add(
-                Article(savedId, now, now, section.trim().ifBlank { "Загальне" }, subsection.trim(),
+                Article(savedId, now, now, I18n.canonical(section.trim()).ifBlank { tk("Загальне") }, subsection.trim(),
                     title.trim(), marking.trim(), analogs.trim(), body.trim(), photos, official = false, author = prefs.email),
             )
         } else {
@@ -491,7 +532,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             val i = userArticles.indexOfFirst { it.id == id }
             if (i < 0) return id
             userArticles[i] = userArticles[i].copy(
-                updatedAt = now, section = section.trim().ifBlank { "Загальне" }, subsection = subsection.trim(),
+                updatedAt = now, section = I18n.canonical(section.trim()).ifBlank { tk("Загальне") }, subsection = subsection.trim(),
                 title = title.trim(), marking = marking.trim(), analogs = analogs.trim(), body = body.trim(), photos = photos,
             )
         }
@@ -504,7 +545,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun deleteArticle(id: Long) {
         val a = userArticles.firstOrNull { it.id == id } ?: return
-        for (name in a.photos) runCatching { File(photoDir(), name).delete() }
+        for (name in a.photos) runCatching { File(photoPath(name)).delete() }
         userArticles.removeAll { it.id == id }
         prefs.saveArticles(userArticles.toList())
         scheduleBackup()
@@ -530,7 +571,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         return out
     }
 
-    fun photoPath(name: String): String = File(photoDir(), name).absolutePath
+    // Лише ім'я файлу: стаття з чужої копії не повинна дістатись до інших файлів застосунку через «../».
+    fun photoPath(name: String): String = File(photoDir(), File(name).name).absolutePath
 
     // ---------------- «Що нового» після оновлення
     var whatsNew by mutableStateOf<List<Release>>(emptyList())
@@ -542,7 +584,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     // ---------------- Згода на спільну базу (статті й коди надсилаються автоматично)
-    var showShareConsent by mutableStateOf(!prefs.shareConsentShown)
+    var showShareConsent by mutableStateOf(!prefs.shareConsentShown && TelegramConfig.configured())
         private set
 
     fun acceptShareConsent() {
@@ -565,22 +607,22 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Увійти через Google (відкриває браузер) і зробити першу синхронізацію. */
     fun connectGoogle() {
         if (!GoogleDrive.configured()) {
-            gdStatus = "Синхронізацію Google ще не налаштовано в цій збірці."
+            gdStatus = tr("Синхронізацію Google ще не налаштовано в цій збірці.")
             return
         }
         viewModelScope.launch {
-            gdStatus = "Відкриваю вхід Google у браузері…"
+            gdStatus = tr("Відкриваю вхід Google у браузері…")
             val res = withContext(Dispatchers.IO) {
                 runCatching { GoogleDrive.signIn(appCtx) }
             }
             res.fold(
                 onSuccess = { r ->
                     prefs.saveGoogleTokens(r.refreshToken, r.accessToken, r.expiresInSec, r.email)
-                    gdStatus = "✓ Підключено: ${r.email.ifBlank { "Google акаунт" }}. Синхронізую…"
-                    gdStatus = withContext(Dispatchers.IO) { runCatching { initialGoogleSync() }.getOrElse { "Підключено, але синхронізація не вдалась: ${it.message}" } }
+                    gdStatus = tr("✓ Підключено: {0}. Синхронізую…", r.email.ifBlank { tr("Google акаунт") })
+                    gdStatus = withContext(Dispatchers.IO) { runCatching { initialGoogleSync() }.getOrElse { tr("Підключено, але синхронізація не вдалась: {0}", it.message) } }
                 },
                 onFailure = { e ->
-                    gdStatus = "Не вдалося увійти: ${e.message ?: "невідома помилка"}"
+                    gdStatus = tr("Не вдалося увійти: {0}", e.message ?: tr("невідома помилка"))
                 },
             )
         }
@@ -588,22 +630,22 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun disconnectGoogle() {
         prefs.clearGoogle()
-        gdStatus = "Google відключено."
+        gdStatus = tr("Google відключено.")
     }
 
     fun syncGoogleNow() {
         if (!prefs.gdConnected) return
         viewModelScope.launch {
-            gdStatus = "Синхронізую…"
+            gdStatus = tr("Синхронізую…")
             gdStatus = withContext(Dispatchers.IO) {
-                try { pushGoogle(); "✓ Синхронізовано з Google." } catch (e: Exception) { "Не вдалося синхронізувати." }
+                try { pushGoogle(); tr("✓ Синхронізовано з Google.") } catch (e: Exception) { tr("Не вдалося синхронізувати.") }
             }
         }
     }
 
     /** Перша синхронізація після входу: тягнемо хмару, якщо локально порожньо або хмара новіша. */
     private suspend fun initialGoogleSync(): String {
-        val token = freshGoogleToken() ?: return "Помилка авторизації Google."
+        val token = freshGoogleToken() ?: return tr("Помилка авторизації Google.")
         val fid = GoogleDrive.findFileId(token)
         if (fid != null) {
             val remote = GoogleDrive.download(token, fid)
@@ -614,14 +656,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     withContext(Dispatchers.Main) {
                         reloadAll(); offerRestore = false; prefs.restoreOffered = true
                     }
-                    return "✓ Дані відновлено з Google Диску."
+                    return tr("✓ Дані відновлено з Google Диску.")
                 }
             }
             prefs.gdFileId = GoogleDrive.upload(token, fid, prefs.exportBundle()) ?: fid
-            return "✓ Синхронізовано з Google."
+            return tr("✓ Синхронізовано з Google.")
         }
         prefs.gdFileId = GoogleDrive.upload(token, null, prefs.exportBundle()) ?: ""
-        return "✓ Копію створено в Google."
+        return tr("✓ Копію створено в Google.")
     }
 
     private fun freshGoogleToken(): String? {
@@ -733,7 +775,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             )
         }
         persistNotes()
-        ReminderWorker.schedule(appCtx, savedId, title.trim().ifBlank { "Замітка" }, reminderAt)
+        ReminderWorker.schedule(appCtx, savedId, title.trim().ifBlank { tr("Замітка") }, reminderAt)
         return savedId
     }
 
@@ -769,6 +811,58 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private var rawLogged = 0
     private var pausedSn: String? = null
 
+    private val cloud = CloudSession(
+        email = { email },
+        password = { password },
+        primaryHost = { host },
+        onAuthChanged = { auth = it },
+        onBusy = { loginBusy = it },
+        onLoggedIn = { a, h, onPrimary ->
+            prefs.email = email.trim()
+            if (onPrimary) prefs.host = h
+            prefs.rememberPassword = remember
+            prefs.password = if (remember) password else ""
+            addLog(tr("Вхід виконано: {0} (userId {1}, сервер {2})", a.userName ?: email.trim(), a.userId, h))
+        },
+        onServerChanged = {
+            host = it
+            prefs.host = it
+            addLog(tr("Станція відповіла через сервер {0} — запам'ятав його", it))
+        },
+        log = { addLog(it) },
+    )
+
+    private val diagListener = object : LinkListener {
+        override fun onStatus(text: String, busy: Boolean, error: Boolean) {
+            diagStatus = text
+            diagBusy = busy
+            diagError = error
+        }
+
+        override fun onClient(client: EcoflowMqtt?) {
+            mqtt = client
+            diagConnected = client != null
+        }
+
+        override fun onLoginRejected(message: String) {
+            addLog(tr("Вхід відхилено: {0}", message))
+            stopDiag()
+            pausedSn = null
+            cloud.forget()
+            loginError = message
+            screen = Screen.LOGIN
+        }
+
+        override fun log(text: String) = addLog(text)
+    }
+
+    private val quietListener = object : LinkListener {
+        override fun onStatus(text: String, busy: Boolean, error: Boolean) {}
+        override fun onClient(client: EcoflowMqtt?) {}
+        override fun onLoginRejected(message: String) {}
+        override fun log(text: String) {}
+    }
+
     init {
         stations.addAll(prefs.loadStations())
         orders.addAll(prefs.loadOrders())
@@ -777,7 +871,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         notes.addAll(prefs.loadNotes())
         // «Що нового»: показати один раз для нової версії.
         if (prefs.lastWhatsNewVersion != Changelog.CURRENT) {
-            whatsNew = Changelog.newerThan(prefs.lastWhatsNewVersion)
+            // Новому користувачу порівнювати нема з чим: вікно лише заважало б першому запуску.
+            val firstRun = prefs.email.isBlank() && !prefs.hasAnyData()
+            whatsNew = if (firstRun) emptyList() else Changelog.newerThan(prefs.lastWhatsNewVersion)
             if (whatsNew.isEmpty()) prefs.lastWhatsNewVersion = Changelog.CURRENT
         }
         // Чиста інсталяція без даних — запропонувати відновити з файлу копії.
@@ -788,14 +884,30 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
         if (prefs.rememberPassword && prefs.email.isNotBlank() && prefs.password.isNotBlank()) {
             screen = Screen.STATIONS
-            viewModelScope.launch {
-                try {
-                    ensureAuth()
-                    maybeAutoRefresh()
-                } catch (e: ApiException) {
-                    loginError = e.message
-                    screen = Screen.LOGIN
-                }
+            viewModelScope.launch { startupLogin() }
+        }
+    }
+
+    /**
+     * Вхід зі збереженими даними. На екран входу веде лише відмова сервера (невірний пароль):
+     * збій мережі — не привід викидати людину з роботи, просто пробуємо ще раз.
+     */
+    private suspend fun startupLogin() {
+        var wait = 5000L
+        while (auth == null && password.isNotBlank()) {
+            try {
+                cloud.auth()
+                refreshAllStatus = ""
+                maybeAutoRefresh()
+            } catch (e: LoginRejected) {
+                loginError = e.message
+                if (screen == Screen.STATIONS) screen = Screen.LOGIN
+                return
+            } catch (e: ApiException) {
+                addLog(e.message ?: tr("Помилка входу"))
+                refreshAllStatus = tr("Немає зв'язку з EcoFlow, пробую ще раз…")
+                delay(wait)
+                wait = minOf(60_000L, wait * 2)
             }
         }
     }
@@ -809,7 +921,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      * [url]/[version] передаються зі сповіщення; без них береться [availableUpdate].
      */
     fun startUpdate(ctx: Context, url: String? = null, version: String? = null) {
-        val link = url ?: availableUpdate?.url ?: return
+        val link = url?.takeIf { Updater.isTrustedUrl(it) } ?: availableUpdate?.url ?: return
         // Якщо дані прийшли зі сповіщення, а банер ще порожній — покажемо його з прогресом.
         if (availableUpdate == null) availableUpdate = UpdateInfo(version ?: "", link, "")
         if (updateDownloading) return
@@ -828,19 +940,18 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
             updateDownloading = false
             if (apk == null) {
-                updateError = "Не вдалося завантажити. Спробуйте «У браузері»."
+                updateError = tr("Не вдалося завантажити. Спробуйте «У браузері».")
                 return@launch
             }
             if (withContext(Dispatchers.IO) { ApkUpdater.foreignSigner(ctx, apk) }) {
                 apk.delete()
-                updateError = "Файл оновлення підписаний чужим ключем — встановлення скасовано. " +
-                    "Завантаж застосунок лише з офіційної сторінки Savosh на GitHub."
+                updateError = tr("Файл оновлення не пройшов перевірку підпису — встановлення скасовано. Завантажуй застосунок лише з офіційної сторінки Savosh на GitHub.")
                 return@launch
             }
             downloadedApk = apk
             if (!ApkUpdater.canInstall(ctx)) {
                 ApkUpdater.openInstallPermission(ctx)
-                updateError = "Дозвольте встановлення застосунків і натисніть «Оновити» ще раз."
+                updateError = tr("Дозвольте встановлення застосунків і натисніть «Оновити» ще раз.")
                 return@launch
             }
             ApkUpdater.install(ctx, apk)
@@ -849,7 +960,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Раз за запуск: щойно є вхід і станції — автоматично опитати всі, щоб показати свіжі дані й online. */
     private fun maybeAutoRefresh() {
-        if (autoRefreshDone || stations.isEmpty()) return
+        if (autoRefreshDone || stations.isEmpty() || diagJob != null) return
         autoRefreshDone = true
         refreshAllStations()
     }
@@ -858,15 +969,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun login() {
         if (email.isBlank() || password.isBlank()) {
-            loginError = "Введіть email і пароль від застосунку EcoFlow"
+            loginError = tr("Введіть email і пароль від застосунку EcoFlow")
             return
         }
         loginError = null
-        auth = null
-        creds = null
+        cloud.forget()
         viewModelScope.launch {
             try {
-                ensureAuth()
+                cloud.auth()
                 screen = Screen.STATIONS
                 maybeAutoRefresh()
             } catch (e: ApiException) {
@@ -877,8 +987,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     fun logout() {
         stopDiag()
-        auth = null
-        creds = null
+        stopRefreshAll()
+        cloud.forget()
         password = ""
         prefs.password = ""
         // Вихід лише з акаунта EcoFlow — застосунок не закриваємо: майстерня, деталі,
@@ -901,46 +1011,30 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Чи виконано вхід в акаунт EcoFlow. */
     val loggedIn: Boolean get() = auth != null
 
-    private suspend fun ensureAuth(): EcoflowAuth {
-        auth?.let { return it }
-        loginBusy = true
-        try {
-            val e = email.trim()
-            val p = password
-            val h = host
-            val a = withContext(Dispatchers.IO) { EcoflowApi(h).login(e, p) }
-            auth = a
-            prefs.email = e
-            prefs.host = h
-            prefs.rememberPassword = remember
-            prefs.password = if (remember) p else ""
-            addLog("Вхід виконано: ${a.userName ?: e} (userId ${a.userId}, сервер $h)")
-            return a
-        } finally {
-            loginBusy = false
-        }
-    }
-
-    private suspend fun ensureCreds(a: EcoflowAuth): MqttCreds {
-        creds?.let { return it }
-        val c = withContext(Dispatchers.IO) { EcoflowApi(a.host).certification(a) }
-        creds = c
-        addLog("Отримано доступ до MQTT: ${c.host}:${c.port} (${c.protocol})")
-        return c
-    }
-
     // =========================================================== станції
 
     /** Повертає текст помилки або null, якщо станцію додано. */
     fun addStation(snRaw: String, note: String): String? {
-        val sn = Models.normalizeSn(snRaw)
-        if (sn.length < 8) return "Серійний номер занадто короткий"
-        if (stations.any { it.sn == sn }) return "Така станція вже є у списку"
+        Models.foreignLetters(snRaw).takeIf { it.isNotEmpty() }?.let {
+            return tr("У серійному номері є літери не латиницею: {0}. Перемкніть клавіатуру на англійську.", it.joinToString(" "))
+        }
+        val sn = Models.extractSn(snRaw)
+        if (sn.length < 10) return tr("Серійний номер занадто короткий. Він виглядає приблизно так: R331ZEB4ZE100001")
+        if (stations.any { it.sn == sn }) return tr("Така станція вже є у списку")
         val entry = StationEntry(sn, note.trim(), Models.bySn(sn)?.name, null, null, null, null)
         stations.add(0, entry)
         prefs.saveStations(stations.toList())
         scheduleBackup()
+        checkNewStation(sn)
         return null
+    }
+
+    /** Щойно додану станцію перевіряємо одразу: людина бачить, чи вона онлайн, не заходячи всередину. */
+    private fun checkNewStation(sn: String) {
+        if (!loggedIn) return
+        val onlyNew = !refreshAllBusy
+        stopRefreshAll()
+        refreshAllStations(if (onlyNew) sn else null)
     }
 
     fun updateNote(sn: String, note: String) {
@@ -978,9 +1072,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun openDiag(sn: String) {
         // Діагностика потребує входу в EcoFlow. Якщо входу немає й немає збережених даних — на екран входу.
         if (auth == null && (prefs.email.isBlank() || prefs.password.isBlank())) {
-            loginError = "Увійдіть в акаунт EcoFlow, щоб діагностувати станції."
+            loginError = tr("Увійдіть в акаунт EcoFlow, щоб діагностувати станції.")
             screen = Screen.LOGIN
             return
+        }
+        if (refreshAllBusy) {
+            // Людина обрала конкретну станцію: їй важливіше, а список доопитаємо, коли повернеться.
+            stopRefreshAll()
+            autoRefreshDone = false
         }
         pausedSn = null
         screen = Screen.DIAG
@@ -999,7 +1098,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         diagBusy = true
         diagConnected = true
         diagOnline = true
-        diagStatus = "Демо-режим"
+        diagStatus = tr("Демо-режим")
         stationLog = emptyList()
         screen = Screen.DIAG
         var t = 0.0
@@ -1031,11 +1130,18 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (isDemo) return
         val m = mqtt
         if (m == null || !m.isConnected()) return retryDiag()
-        addLog("Ручний запит оновлення")
-        viewModelScope.launch(Dispatchers.IO) { sendRequest(m, chooseFormat(0), logIt = true) }
+        val sn = diagSn ?: return
+        addLog(tr("Ручний запит оновлення"))
+        viewModelScope.launch(Dispatchers.IO) {
+            val fmt = StationLink.requestFormat(
+                Models.bySn(sn)?.generation,
+                QuotaStore.detectGeneration(store.snapshot().keys),
+                store.hasBattery(),
+                0,
+            )
+            m.publish(m.getTopic, StationLink.requestPayload(fmt))
+        }
     }
-
-    private enum class Fmt { JSON, PROTO }
 
     private fun startDiag(sn: String, keepData: Boolean = false) {
         stopDiag()
@@ -1062,135 +1168,29 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         diagError = false
         loggedNotes = 0
         rawLogged = 0
-        addLog("──── Діагностика $sn ────")
+        addLog(tr("──── Діагностика {0} ────", sn))
+        addLog(tr("Застосунок {0}, сервер {1}, модель за SN: {2}", ua.savosh.ecoflowdiag.BuildConfig.VERSION_NAME, host, Models.bySn(sn)?.name ?: tr("не впізнано")))
+        val link = StationLink(
+            sn = sn,
+            store = store,
+            cloud = cloud,
+            listener = diagListener,
+            onMessage = { topic, payload -> onMqttMessage(topic, payload) },
+            testRunning = { capTestRunning || balanceRunning },
+            liveMode = { liveMode },
+        )
         diagJob = viewModelScope.launch {
-            diagBusy = report == null
-            var m: EcoflowMqtt? = null
             try {
-                diagStatus = "Вхід в акаунт EcoFlow…"
-                val a = ensureAuth()
-                var failures = 0
-                var requests = 0
-                var lastRequestMs = 0L
-                while (isActive) {
-                    // 1. З'єднання з хмарою (власне перепідключення, без автоматики Paho)
-                    val cur = m
-                    if (cur == null || !cur.isConnected()) {
-                        if (cur != null) {
-                            cur.close()
-                            mqtt = null
-                            diagConnected = false
-                            diagStatus = "Зв'язок з хмарою втрачено, перепідключення…"
-                        } else {
-                            diagStatus = "Підключення до хмари EcoFlow…"
-                        }
-                        m = null
-                        try {
-                            val c = ensureCreds(a)
-                            val nm = EcoflowMqtt(
-                                creds = c,
-                                userId = a.userId,
-                                sn = sn,
-                                onMessage = { topic, payload -> onMqttMessage(topic, payload) },
-                                onLog = { addLog(it) },
-                            )
-                            withContext(Dispatchers.IO) { nm.connect() }
-                            m = nm
-                            mqtt = nm
-                            diagConnected = true
-                            failures = 0
-                            lastRequestMs = 0L // одразу запитати дані
-                        } catch (e: MqttAuthException) {
-                            creds = null // наступна спроба отримає нові облікові дані
-                            failures++
-                            addLog(e.message ?: "MQTT: відмова в доступі")
-                            if (failures >= 3) throw e
-                        } catch (e: ApiException) {
-                            failures++
-                            addLog(e.message ?: "MQTT: помилка")
-                            if (failures >= 6) throw e
-                        }
-                        if (m == null) {
-                            delay(minOf(30000L, 3000L * failures))
-                            continue
-                        }
-                    }
-                    val conn = m ?: continue
-
-                    // 2. Запит повного знімка
-                    val now = System.currentTimeMillis()
-                    val haveData = store.size() > 0
-                    val interval = when {
-                        haveData && (capTestRunning || balanceRunning) -> 10000L
-                        haveData && liveMode -> 8000L
-                        haveData -> 30000L
-                        store.online == false -> 15000L
-                        requests < 2 -> 5000L
-                        else -> 10000L
-                    }
-                    if (now - lastRequestMs >= interval) {
-                        val fmt = chooseFormat(requests)
-                        val logIt = requests < 4 || requests % 10 == 0
-                        withContext(Dispatchers.IO) { sendRequest(conn, fmt, logIt) }
-                        requests++
-                        lastRequestMs = now
-                    }
-
-                    // 3. Стан для екрана
-                    if (!haveData) {
-                        when {
-                            store.online == false -> {
-                                diagBusy = false
-                                diagError = true
-                                diagStatus = OFFLINE_TEXT
-                            }
-                            requests >= 4 -> {
-                                diagBusy = false
-                                diagError = true
-                                diagStatus = NO_DATA_TEXT
-                            }
-                            else -> diagStatus = "Запит даних у станції…"
-                        }
-                    }
-                    delay(1000L)
-                }
+                link.run()
             } catch (e: CancellationException) {
                 throw e
-            } catch (e: ApiException) {
-                diagBusy = false
-                diagError = true
-                diagStatus = e.message ?: "Помилка"
-                addLog("Помилка: ${e.message}")
             } catch (e: Exception) {
                 diagBusy = false
                 diagError = true
-                diagStatus = "Помилка: ${e.message ?: e.javaClass.simpleName}"
-                addLog("Помилка: ${e.javaClass.simpleName}: ${e.message}")
-            } finally {
-                m?.close()
+                diagStatus = tr("Помилка: {0}", e.message ?: e.javaClass.simpleName)
+                addLog(tr("Помилка: {0}: {1}", e.javaClass.simpleName, e.message))
             }
         }
-    }
-
-    /** Формат запиту: для відомої моделі — лише її формат, для невідомої — по черзі. */
-    private fun chooseFormat(attempt: Int): Fmt {
-        val gen = QuotaStore.detectGeneration(store.snapshot().keys).takeIf { it != Generation.UNKNOWN }
-            ?: diagSn?.let { Models.bySn(it)?.generation }
-        return when (gen) {
-            Generation.GEN3 -> Fmt.PROTO
-            Generation.GEN1, Generation.GEN2 -> Fmt.JSON
-            else -> if (attempt % 2 == 0) Fmt.JSON else Fmt.PROTO
-        }
-    }
-
-    private fun sendRequest(m: EcoflowMqtt, fmt: Fmt, logIt: Boolean) {
-        val seq = 999900000 + Random.nextInt(10000, 99999)
-        val payload = when (fmt) {
-            Fmt.JSON -> MessageDecoder.buildJsonQuotaRequest(seq)
-            Fmt.PROTO -> Gen3Decoder.buildGetAllRequest(seq)
-        }
-        if (logIt) addLog("→ запит усіх даних (${if (fmt == Fmt.JSON) "JSON latestQuotas" else "protobuf get-all"})")
-        m.publish(m.getTopic, payload)
     }
 
     private fun onMqttMessage(topic: String, payload: ByteArray) {
@@ -1199,13 +1199,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             viewModelScope.launch(Dispatchers.Main) {
                 controlReply = txt
                 controlBusy = false
-                addLog("← відповідь на команду: ${txt.take(200)}")
+                addLog(tr("← відповідь на команду: {0}", txt.take(200)))
             }
             return
         }
         if (rawLogged < 3) {
             rawLogged++
-            addLog("← сирі дані [${topic.substringAfterLast('/')}] ${preview(payload)}")
+            addLog(tr("← сирі дані [{0}] {1}", topic.substringAfterLast('/'), preview(payload)))
         }
         val msg = MessageDecoder.decode(topic, payload) ?: return
         store.apply(msg)
@@ -1228,7 +1228,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             return if (t.length > 300) t.take(300) + "…" else t
         }
         val hex = payload.take(48).joinToString("") { "%02x".format(it) }
-        return "двійкові ${payload.size} байт: $hex${if (payload.size > 48) "…" else ""}"
+        return tr("двійкові {0} байт: {1}{2}", payload.size, hex, if (payload.size > 48) "…" else "")
     }
 
     private fun recompute() {
@@ -1250,7 +1250,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
         diagBusy = false
         diagError = false
-        diagStatus = "Дані отримано: ${snap.size} параметрів"
+        diagStatus = tr("Дані отримано: {0} параметрів", snap.size)
         val now = System.currentTimeMillis()
         val withCells = r.packs.filter { it.cellVols.size >= 2 }
         if (withCells.isNotEmpty()) {
@@ -1260,7 +1260,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 prefs.saveLastCells(sn, lastCells)
             }
         }
-        trackCodes(sn, r, now)
+        trackCodes(sn, snap, r, now)
         capTest?.takeIf { it.sn == sn }?.let { t ->
             t.feed(now, r, snap)
             capTick++
@@ -1277,18 +1277,20 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /** Порівнює коди з попереднім станом і дописує зміни в історію станції. */
-    private fun trackCodes(sn: String, r: StationReport, now: Long) {
-        val tr = tracker ?: return
-        val events = tr.update(r, now)
+    private fun trackCodes(sn: String, snap: Map<String, Any?>, r: StationReport, now: Long) {
+        val trk = tracker ?: return
+        // Стани порівнюються як текст, тому історію ведемо однією мовою: зміна мови — не зміна коду.
+        val uk = canonicalReport(sn, snap, r)
+        val events = I18n.with(AppLang.UK) { trk.update(uk, now) }
         if (events.isNotEmpty()) {
             codeHistory = (events.reversed() + codeHistory).take(CodeHistory.MAX_EVENTS)
             prefs.saveCodeHistory(sn, CodeHistory.eventsToJson(codeHistory))
-            for (e in events) addLog("Код: ${CodeHistory.line(e)}")
+            for (e in events) addLog(tr("Код: {0}", CodeHistory.line(e)))
         }
         // Стан і час "останньої перевірки" оновлюємо при зміні і раз на 30 с — від нього рахується "між перевірками".
-        if (tr.dirty || now - lastCodeStateSaveMs > 30000) {
-            prefs.saveCodeState(sn, CodeHistory.statesToJson(tr.knownStates(), now))
-            tr.markSaved()
+        if (trk.dirty || now - lastCodeStateSaveMs > 30000) {
+            prefs.saveCodeState(sn, CodeHistory.statesToJson(trk.knownStates(), now))
+            trk.markSaved()
             lastCodeStateSaveMs = now
         }
     }
@@ -1297,50 +1299,66 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         val sn = diagSn ?: return
         codeHistory = emptyList()
         prefs.saveCodeHistory(sn, "[]")
-        addLog("Історію кодів станції $sn очищено")
+        addLog(tr("Історію кодів станції {0} очищено", sn))
     }
 
     private fun saveResult(sn: String, r: StationReport) {
         val i = stations.indexOfFirst { it.sn == sn }
         if (i < 0) return
+        val snap = store.snapshot()
+        val uk = canonicalReport(sn, snap, r)
         val worstSoh = r.packs.mapNotNull { it.sohEffective }.minOrNull()
         val soc = r.packs.firstOrNull { it.isMain }?.soc ?: r.packs.firstOrNull()?.soc
         stations[i] = stations[i].copy(
-            model = r.model ?: stations[i].model,
+            model = uk.model ?: stations[i].model,
             lastSoh = worstSoh,
             lastLevel = r.level.name,
-            lastSummary = r.summary,
+            lastSummary = uk.summary,
             lastSoc = soc ?: stations[i].lastSoc,
-            online = true,
+            online = store.online != false,
             lastCheckMs = System.currentTimeMillis(),
         )
         prefs.saveStations(stations.toList())
+        saveReports(sn, snap, stations[i].note, historyFor(sn), logFor(sn))
+        reportNewCodes(uk)
+    }
+
+    /** Те, що зберігається надовго, пишемо українською: показ переводить це поточною мовою (див. I18n.localize). */
+    private fun canonicalReport(sn: String, snap: Map<String, Any?>, current: StationReport): StationReport =
+        if (I18n.current == AppLang.UK) current else I18n.with(AppLang.UK) { Analyzer.analyze(sn, snap, codeNotes) }
+
+    /** Готові звіти кожною мовою: щоб після зміни мови останній звіт станції не лишився старою. */
+    private fun saveReports(sn: String, snap: Map<String, Any?>, note: String, history: List<CodeEvent>, log: List<LogEntry>) {
         val date = dateText()
-        prefs.saveReport(sn, Report.client(r, stations[i].note, date), technical = false)
-        prefs.saveReport(sn, Report.technical(r, stations[i].note, date, historyFor(sn), logFor(sn)), technical = true)
-        reportNewCodes(r)
+        for (l in AppLang.entries) {
+            I18n.with(l) {
+                val rr = Analyzer.analyze(sn, snap, codeNotes)
+                prefs.saveReport(sn, Report.client(rr, note, date), technical = false)
+                prefs.saveReport(sn, Report.technical(rr, note, date, history, log), technical = true)
+            }
+        }
     }
 
     // =========================================================== масове оновлення
 
-    private class QuickResult(val report: StationReport?, val online: Boolean?)
+    private class QuickResult(val report: StationReport?, val online: Boolean?, val snapshot: Map<String, Any?> = emptyMap())
 
     /** Опитує всі станції зі списку по черзі й оновлює їхні картки (заряд, SOH, online/offline). */
-    fun refreshAllStations() {
+    fun refreshAllStations(onlySn: String? = null) {
         if (refreshAllBusy) return
         if (stations.isEmpty()) return
-        stopDiag()
+        // Відкриту діагностику не чіпаємо: раніше це лишало людину на «Підготовка…» без жодної кнопки.
+        if (diagJob != null) return
         refreshAllJob = viewModelScope.launch {
             refreshAllBusy = true
             try {
-                diagStatus = ""
-                val a = ensureAuth()
-                val list = stations.toList()
+                cloud.auth()
+                val list = stations.filter { onlySn == null || it.sn == onlySn }
                 for ((idx, st) in list.withIndex()) {
                     if (!isActive) break
-                    refreshAllStatus = "Опитую ${idx + 1}/${list.size}: ${st.sn}"
+                    refreshAllStatus = tr("Опитую {0}/{1}: {2}", idx + 1, list.size, st.sn)
                     val res = try {
-                        fetchOne(a, st.sn)
+                        fetchOne(st.sn)
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
@@ -1349,13 +1367,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     applyQuick(st.sn, res)
                 }
                 val online = stations.count { it.online == true }
-                refreshAllStatus = "Готово: онлайн $online з ${list.size}"
+                refreshAllStatus = if (onlySn == null) tr("Готово: онлайн {0} з {1}", online, list.size) else ""
             } catch (e: CancellationException) {
                 throw e
             } catch (e: ApiException) {
-                refreshAllStatus = e.message ?: "Помилка входу"
+                refreshAllStatus = e.message ?: tr("Помилка входу")
             } catch (e: Exception) {
-                refreshAllStatus = "Помилка: ${e.message ?: e.javaClass.simpleName}"
+                refreshAllStatus = tr("Помилка: {0}", e.message ?: e.javaClass.simpleName)
             } finally {
                 refreshAllBusy = false
             }
@@ -1366,77 +1384,52 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         refreshAllJob?.cancel()
         refreshAllJob = null
         refreshAllBusy = false
+        refreshAllStatus = ""
     }
 
-    /** Один короткий сеанс: під'єднатися, запитати знімок, зачекати до ~9 с, проаналізувати. */
-    private suspend fun fetchOne(a: EcoflowAuth, sn: String): QuickResult {
+    /** Один короткий сеанс: під'єднатися, дочекатися даних батареї (до ~12 с), проаналізувати. */
+    private suspend fun fetchOne(sn: String): QuickResult {
         val localStore = QuotaStore()
-        var m: EcoflowMqtt? = null
-        try {
-            val c = ensureCreds(a)
-            val nm = EcoflowMqtt(
-                creds = c,
-                userId = a.userId,
-                sn = sn,
-                onMessage = { topic, payload -> MessageDecoder.decode(topic, payload)?.let { localStore.apply(it) } },
-                onLog = {},
-            )
-            withContext(Dispatchers.IO) { nm.connect() }
-            m = nm
-            val gen = Models.bySn(sn)?.generation
-            var waited = 0L
-            var lastReq = -3000L
-            while (waited < 9000L) {
-                if (waited - lastReq >= 3000L) {
-                    val fmt = when (gen) {
-                        Generation.GEN3 -> Fmt.PROTO
-                        Generation.GEN1, Generation.GEN2 -> Fmt.JSON
-                        else -> if ((waited / 3000) % 2 == 0L) Fmt.JSON else Fmt.PROTO
-                    }
-                    withContext(Dispatchers.IO) { sendRequest(nm, fmt, false) }
-                    lastReq = waited
-                }
-                if (localStore.size() > 0 || localStore.online == false) break
-                delay(500)
-                waited += 500
-            }
-            val snap = localStore.snapshot()
-            val report = if (snap.isNotEmpty()) Analyzer.analyze(sn, snap, codeNotes) else null
-            val online = when {
-                snap.isNotEmpty() -> true
-                localStore.online == false -> false
-                else -> null
-            }
-            return QuickResult(report, online)
-        } catch (e: MqttAuthException) {
-            creds = null
-            return QuickResult(null, null)
-        } finally {
-            m?.close()
+        val link = StationLink(
+            sn = sn,
+            store = localStore,
+            cloud = cloud,
+            listener = quietListener,
+            onMessage = { topic, payload -> MessageDecoder.decode(topic, payload)?.let { localStore.apply(it) } },
+        )
+        link.pollOnce()
+        val snap = localStore.snapshot()
+        val report = if (snap.isNotEmpty()) Analyzer.analyze(sn, snap, codeNotes) else null
+        val online = when {
+            localStore.online == false -> false
+            snap.isNotEmpty() -> true
+            else -> null
         }
+        return QuickResult(report, online, snap)
     }
 
     private fun applyQuick(sn: String, res: QuickResult) {
         val i = stations.indexOfFirst { it.sn == sn }
         if (i < 0) return
-        val r = res.report
+        // Знімок без батареї (прийшла лише потужність виходів) нічого не каже про стан:
+        // картку й збережені звіти він не затирає.
+        val r = res.report?.takeIf { it.packs.isNotEmpty() }
+        val uk = res.report?.let { canonicalReport(sn, res.snapshot, it) }
         val worstSoh = r?.packs?.mapNotNull { it.sohEffective }?.minOrNull()
         val soc = r?.packs?.firstOrNull { it.isMain }?.soc ?: r?.packs?.firstOrNull()?.soc
         stations[i] = stations[i].copy(
-            model = r?.model ?: stations[i].model,
+            model = uk?.model ?: stations[i].model,
             lastSoh = worstSoh ?: stations[i].lastSoh,
             lastLevel = r?.level?.name ?: stations[i].lastLevel,
-            lastSummary = r?.summary ?: stations[i].lastSummary,
+            lastSummary = if (r != null) uk?.summary else stations[i].lastSummary,
             lastSoc = soc ?: stations[i].lastSoc,
             online = res.online,
             lastCheckMs = if (r != null) System.currentTimeMillis() else stations[i].lastCheckMs,
         )
         prefs.saveStations(stations.toList())
         if (r != null) {
-            if (r.packs.isNotEmpty()) logDiag(sn, r, throttle = false)
-            val date = dateText()
-            prefs.saveReport(sn, Report.client(r, stations[i].note, date), technical = false)
-            prefs.saveReport(sn, Report.technical(r, stations[i].note, date, log = logFor(sn)), technical = true)
+            logDiag(sn, r, throttle = false)
+            saveReports(sn, res.snapshot, stations[i].note, emptyList(), logFor(sn))
         }
     }
 
@@ -1495,7 +1488,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Обрати вид звіту — згенерувати текст у редактор. */
     fun chooseReport(extended: Boolean) {
         reportExtended = extended
-        reportDraft = reportText(extended) ?: "ЗВІТ\n\nНемає даних діагностики для звіту."
+        reportDraft = reportText(extended) ?: tr("ЗВІТ\n\nНемає даних діагностики для звіту.")
         reportSavedMsg = null
     }
 
@@ -1521,7 +1514,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         list.add(0, doc)
         prefs.saveReportDocs(list)
         reloadReportDocs()
-        reportSavedMsg = "✓ Звіт збережено в програмі."
+        reportSavedMsg = tr("✓ Звіт збережено в програмі.")
         scheduleBackup()
     }
 
@@ -1560,14 +1553,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             val key = ind.codeKey ?: return
             if (ind.level.rank < Level.WARN.rank) return
             if (key in sent || key in collected) return
-            val known = if (EcoflowCodes.hasExplanation(key)) "відомий" else "НОВИЙ"
+            val known = if (EcoflowCodes.hasExplanation(key)) tr("відомий") else tr("НОВИЙ")
             collected[key] = "• $key = ${ind.value} — ${ind.title} [$known]"
         }
         r.protections.forEach(::consider)
         r.packs.forEach { pk -> pk.codes.forEach(::consider) }
         if (collected.isEmpty()) return
         val msg = buildString {
-            append("🔧 Коди зі станції ").append(r.model ?: "?")
+            append(tr("🔧 Коди зі станції ")).append(r.model ?: "?")
             append(" (").append(r.generation.title).append(")\n")   // без SN: коди анонімні
             append(collected.values.joinToString("\n"))
         }
@@ -1586,7 +1579,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         if (t.isEmpty()) m.remove(key) else m[key] = t
         codeNotes = m
         prefs.saveCodeNotes(m)
-        addLog(if (t.isEmpty()) "Примітку до коду $key видалено" else "Примітка до коду $key: $t")
+        addLog(if (t.isEmpty()) tr("Примітку до коду {0} видалено", key) else tr("Примітка до коду {0}: {1}", key, t))
         recompute()
     }
 
@@ -1604,6 +1597,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         mqtt = null
         diagConnected = false
         diagBusy = false
+        cloud.resetServers()
     }
 
     // =========================================================== життєвий цикл
@@ -1611,25 +1605,34 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Застосунок згорнуто: розриваємо з'єднання, щоб воно не "зависало" у фоні. */
     fun onAppBackground() {
         if (prefs.gdConnected) viewModelScope.launch(Dispatchers.IO) { try { pushGoogle() } catch (e: Exception) { } }
+        if (refreshAllBusy) {
+            // У фоні система ріже мережу: опитування лише позначило б усі станції як «невідомо».
+            stopRefreshAll()
+            autoRefreshDone = false
+        }
         val sn = diagSn
         if (capTestRunning || balanceRunning) {
-            addLog("Застосунок згорнуто, але йде ${if (capTestRunning) "тест ємності" else "перевірка балансу"} — зв'язок не розриваємо")
+            addLog(tr("Застосунок згорнуто, але йде {0} — зв'язок не розриваємо", if (capTestRunning) tr("тест ємності") else tr("перевірка балансу")))
             return
         }
         if (diagJob != null && sn != null && screen != Screen.LOGIN && screen != Screen.STATIONS) {
             pausedSn = sn
             stopDiag()
-            addLog("Застосунок згорнуто — зв'язок призупинено")
+            addLog(tr("Застосунок згорнуто — зв'язок призупинено"))
         }
     }
 
     /** Застосунок знову на екрані: відновлюємо діагностику, зберігаючи вже отримані дані. */
     fun onAppForeground() {
-        val sn = pausedSn ?: return
+        val sn = pausedSn
+        if (sn == null) {
+            if (auth != null) maybeAutoRefresh()
+            return
+        }
         pausedSn = null
         // і з екранів тесту ємності / перевірки балансу: інакше після згортання дані туди більше не йшли б
         if (screen == Screen.DIAG || screen == Screen.RAW || screen == Screen.LOG || screen == Screen.CAPTEST || screen == Screen.BALANCE) {
-            addLog("Застосунок відкрито — відновлення зв'язку")
+            addLog(tr("Застосунок відкрито — відновлення зв'язку"))
             startDiag(sn, keepData = true)
         }
     }
@@ -1652,16 +1655,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         screen = Screen.CAPTEST
     }
 
-    fun capStartCharge() = capAction { it.startCharge(System.currentTimeMillis()); addLog("Тест ємності: етап 1 (заряд) почато") }
-    fun capFinishCharge() = capAction { it.finishCharge(System.currentTimeMillis()); addLog("Тест ємності: етап 1 завершено, ≈${Analyzer.fmt0(it.charge.wh)} Вт·год") }
-    fun capStartDischarge() = capAction { it.startDischarge(System.currentTimeMillis()); addLog("Тест ємності: етап 2 (розряд) почато") }
+    fun capStartCharge() = capAction { it.startCharge(System.currentTimeMillis()); addLog(tr("Тест ємності: етап 1 (заряд) почато")) }
+    fun capFinishCharge() = capAction { it.finishCharge(System.currentTimeMillis()); addLog(tr("Тест ємності: етап 1 завершено, ≈{0} Вт·год", Analyzer.fmt0(it.charge.wh))) }
+    fun capStartDischarge() = capAction { it.startDischarge(System.currentTimeMillis()); addLog(tr("Тест ємності: етап 2 (розряд) почато")) }
     fun capFinishDischarge() = capAction { t ->
         t.finishDischarge(System.currentTimeMillis())
-        addLog("Тест ємності завершено: ≈${Analyzer.fmt0(t.discharge.wh)} Вт·год")
-        prefs.saveCapTest(t.sn, t.summaryText(report?.model, dateText()))
+        addLog(tr("Тест ємності завершено: ≈{0} Вт·год", Analyzer.fmt0(t.discharge.wh)))
+        for (l in AppLang.entries) I18n.with(l) { prefs.saveCapTest(t.sn, t.summaryText(report?.model, dateText())) }
         t.measuredWh?.let { m ->
-            val pct = t.sohMeasured?.let { " — ${Analyzer.fmt0(it)}% від номіналу BMS" } ?: ""
-            appendLog(t.sn, LogEntry(System.currentTimeMillis(), StationLog.CAPACITY, soh = t.sohMeasured, text = "≈${Analyzer.fmt0(m)} Вт·год (${Analyzer.fmt1(t.discharge.ah)} А·год)$pct"))
+            val text = I18n.with(AppLang.UK) {
+                val pct = t.sohMeasured?.let { tr(" — {0}% від номіналу BMS", Analyzer.fmt0(it)) } ?: ""
+                tr("≈{0} Вт·год ({1} А·год){2}", Analyzer.fmt0(m), Analyzer.fmt1(t.discharge.ah), pct)
+            }
+            appendLog(t.sn, LogEntry(System.currentTimeMillis(), StationLog.CAPACITY, soh = t.sohMeasured, text = text))
         }
     }
 
@@ -1696,14 +1702,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         screen = Screen.BALANCE
     }
 
-    fun balanceStart() = balAction { it.start(System.currentTimeMillis()); addLog("Перевірка балансу почата") }
+    fun balanceStart() = balAction { it.start(System.currentTimeMillis()); addLog(tr("Перевірка балансу почата")) }
 
     fun balanceFinish() = balAction { b ->
         b.finish(System.currentTimeMillis())
-        prefs.saveBalanceCheck(b.sn, b.summaryText(report?.model, dateText()))
-        addLog("Перевірка балансу завершена: ${b.shortResult()}")
+        for (l in AppLang.entries) I18n.with(l) { prefs.saveBalanceCheck(b.sn, b.summaryText(report?.model, dateText())) }
+        addLog(tr("Перевірка балансу завершена: {0}", b.shortResult()))
         val w = b.worst()
-        appendLog(b.sn, LogEntry(System.currentTimeMillis(), StationLog.BALANCE, deltaMv = w?.deltaMv, soc = w?.soc, text = b.shortResult()))
+        appendLog(b.sn, LogEntry(System.currentTimeMillis(), StationLog.BALANCE, deltaMv = w?.deltaMv, soc = w?.soc, text = I18n.with(AppLang.UK) { b.shortResult() }))
     }
 
     fun balanceReset() {
@@ -1743,25 +1749,25 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun sendCommand(cmd: DeviceCommand) {
         val m = mqtt
         if (m == null || !m.isConnected()) {
-            controlReply = "Немає з'єднання зі станцією. Поверніться й зачекайте, поки діагностика під'єднається."
+            controlReply = tr("Немає з'єднання зі станцією. Поверніться й зачекайте, поки діагностика під'єднається.")
             return
         }
         controlSent = "${cmd.title}\n${cmd.json}"
         controlReply = null
         controlBusy = true
-        addLog("→ команда: ${cmd.title} ${cmd.json}")
+        addLog(tr("→ команда: {0} {1}", cmd.title, cmd.json))
         viewModelScope.launch {
             val ok = withContext(Dispatchers.IO) { m.publish(m.setTopic, cmd.json.toByteArray(Charsets.UTF_8)) }
             if (!ok) {
                 controlBusy = false
-                controlReply = "Не вдалося надіслати команду (помилка зв'язку)."
+                controlReply = tr("Не вдалося надіслати команду (помилка зв'язку).")
                 return@launch
             }
             delay(6000)
             if (controlBusy) {
                 controlBusy = false
                 if (controlReply == null) {
-                    controlReply = "Станція не відповіла за 6 с. Можливо, цей формат команди не підходить для цієї моделі — напишіть розробнику, яка модель, і формат підправлять."
+                    controlReply = tr("Станція не відповіла за 6 с. Можливо, цей формат команди не підходить для цієї моделі — напишіть розробнику, яка модель, і формат підправлять.")
                 }
             }
         }
@@ -1825,16 +1831,23 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             true
         } else {
             diagSn?.let { sn ->
-                report?.let {
-                    if (it.packs.isNotEmpty()) {
-                        saveResult(sn, it)
-                        logDiag(sn, it, throttle = false)
+                val r = report
+                if (r != null && r.packs.isNotEmpty()) {
+                    saveResult(sn, r)
+                    logDiag(sn, r, throttle = false)
+                } else {
+                    // Батареї так і не дочекались: на картці лишаємо хоча б те, що сказала хмара.
+                    val i = stations.indexOfFirst { it.sn == sn }
+                    if (i >= 0 && store.online != null) {
+                        stations[i] = stations[i].copy(online = store.online)
+                        prefs.saveStations(stations.toList())
                     }
                 }
             }
             stopDiag()
             pausedSn = null
             screen = Screen.STATIONS
+            maybeAutoRefresh()
             true
         }
         else -> false
@@ -1849,17 +1862,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun dateText(): String = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.US).format(Date())
-
-    companion object {
-        const val OFFLINE_TEXT =
-            "Хмара EcoFlow каже, що станція з цим SN в цьому акаунті офлайн. Якщо станція точно в мережі по Wi-Fi, перевірте: " +
-                "1) SN збігається символ у символ із застосунком EcoFlow (станція → ⚙ → Про пристрій) — легко сплутати 0/O, 8/B, 1/I, 5/S; " +
-                "2) станція додана саме в той акаунт (той самий email), яким ви увійшли тут; " +
-                "3) спробуйте при вході сервер «Європа». Дані з'являться автоматично, щойно хмара побачить станцію."
-        const val NO_DATA_TEXT =
-            "Немає даних від станції. Перевірте: станція онлайн через Wi-Fi, прив'язана саме до цього акаунта, " +
-                "серійний номер правильний. Спроби тривають автоматично."
-    }
 
     override fun onCleared() {
         stopDiag()

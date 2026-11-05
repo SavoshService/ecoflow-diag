@@ -1,5 +1,6 @@
 package ua.savosh.ecoflowdiag.ui
 
+import ua.savosh.ecoflowdiag.core.tr
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -8,15 +9,19 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -26,32 +31,55 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlin.math.sin
 
-/** Діалог подяки з анімованою чашкою запашної кави. */
+/** Діалог подяки з анімованою чашкою запашної кави: банка Monobank або PayPal. */
 @Composable
 fun CoffeeDonateDialog(onOpen: () -> Unit, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    var copied by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Дякую! ☕", fontWeight = FontWeight.Bold) },
+        title = { FitText(tr("Дякую! ☕"), fontWeight = FontWeight.Bold) },
         text = {
-            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                SteamingCoffee()
-                Spacer(Modifier.height(12.dp))
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+            ) {
+                // На низькому екрані чашка менша, щоб обидва способи підтримки було видно без прокрутки.
+                SteamingCoffee(sizeDp = if (LocalConfiguration.current.screenHeightDp < 640) 64 else 110)
+                Spacer(Modifier.height(8.dp))
                 Text(
-                    "Якщо програма стала в пригоді — можна кинути на каву автору. Дрібниця, а приємно й допомагає розвивати застосунок.",
+                    tr("Якщо програма стала в пригоді — можна кинути на каву автору. Дрібниця, а приємно й допомагає розвивати застосунок."),
                     style = MaterialTheme.typography.bodyMedium,
                     textAlign = TextAlign.Center,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                Spacer(Modifier.height(14.dp))
+                Button(onClick = onOpen, modifier = Modifier.fillMaxWidth()) { FitText(tr("Відкрити банку")) }
+                Spacer(Modifier.height(6.dp))
+                OutlinedButton(onClick = { openPayPal(context) }, modifier = Modifier.fillMaxWidth()) { FitText("PayPal") }
+                Spacer(Modifier.height(6.dp))
+                FitText(PAYPAL_EMAIL, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                TextButton(onClick = {
+                    clipboard.setText(AnnotatedString(PAYPAL_EMAIL))
+                    copied = true
+                }) {
+                    FitText(if (copied) tr("✓ Скопійовано") else tr("Скопіювати адресу PayPal"))
+                }
             }
         },
-        confirmButton = { Button(onClick = onOpen) { Text("Відкрити банку") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Іншим разом") } },
+        confirmButton = { TextButton(onClick = onDismiss) { Text(tr("Іншим разом")) } },
     )
 }
 

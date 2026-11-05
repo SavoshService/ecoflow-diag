@@ -1,5 +1,6 @@
 package ua.savosh.ecoflowdiag.ui
 
+import ua.savosh.ecoflowdiag.core.tr
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -98,9 +99,9 @@ internal fun SoonBadge() {
             Text("🛠", style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.width(12.dp))
             Column {
-                Text("СКОРО — наповнюється", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onTertiaryContainer)
+                Text(tr("СКОРО — наповнюється"), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onTertiaryContainer)
                 Text(
-                    "Розділ у розробці. Готове прийде з оновленням програми.",
+                    tr("Розділ у розробці. Готове прийде з оновленням програми."),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onTertiaryContainer,
                 )

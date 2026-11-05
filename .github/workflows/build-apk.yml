@@ -78,7 +78,8 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           # секрети застосунку (у коді їх немає): без них вимикаються лише Telegram-відправка / вхід Google
-          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          # окремий бот застосунку: токен бота форуму сюди не можна, з APK його легко витягти
+          TG_APP_BOT_TOKEN: ${{ secrets.TG_APP_BOT_TOKEN }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
         run: |
           chmod +x gradlew

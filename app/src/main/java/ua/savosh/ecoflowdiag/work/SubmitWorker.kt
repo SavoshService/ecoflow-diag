@@ -1,5 +1,6 @@
 package ua.savosh.ecoflowdiag.work
 
+import ua.savosh.ecoflowdiag.core.I18n
 import android.content.Context
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
@@ -25,13 +26,15 @@ import java.util.concurrent.TimeUnit
 class SubmitWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
 
     override suspend fun doWork(): Result {
+        I18n.lang = Prefs(applicationContext).appLang
         if (!TelegramConfig.configured()) return Result.success() // відправка ще не налаштована
         val id = inputData.getLong(KEY_ID, -1L)
         if (id < 0) return Result.success()
         val prefs = Prefs(applicationContext)
         val a = prefs.loadArticles().firstOrNull { it.id == id } ?: return Result.success()
         val dir = File(applicationContext.filesDir, "kb_photos")
-        val files = a.photos.map { File(dir, it) }
+        // Лише ім'я файлу: у телеграм не повинно піти нічого поза текою фото, навіть зі зміненої копії.
+        val files = a.photos.map { File(dir, File(it).name) }
         return try {
             withContext(Dispatchers.IO) {
                 TelegramSubmit.sendArticle(a.title, a.section, a.subsection, a.marking, a.analogs, a.body, files)

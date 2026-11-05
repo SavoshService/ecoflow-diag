@@ -1,5 +1,6 @@
 package ua.savosh.ecoflowdiag.ui
 
+import ua.savosh.ecoflowdiag.core.tr
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -32,6 +33,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import kotlin.math.cos
@@ -56,32 +58,25 @@ fun FlashScreen(vm: AppViewModel) {
             TopAppBar(
                 navigationIcon = {
                     IconButton(onClick = { vm.back() }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr("Назад"))
                     }
                 },
-                title = { Text("Прошивка станцій", fontWeight = FontWeight.Bold) },
+                title = { FitText(tr("Прошивка станцій"), fontWeight = FontWeight.Bold) },
             )
         },
     ) { pad ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(pad)
-                .padding(horizontal = 32.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
+        CenteredScroll(Modifier.fillMaxSize().padding(pad).padding(horizontal = 32.dp)) {
             BrokenRobot(t)
             Spacer(Modifier.height(28.dp))
             Text(
-                "🤖 Розділ у розробці",
+                tr("🤖 Розділ у розробці"),
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface,
             )
             Spacer(Modifier.height(12.dp))
             Text(
-                "Скоро можна буде прошивати станції прямо з телефону.",
+                tr("Скоро можна буде прошивати станції прямо з телефону."),
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
@@ -90,7 +85,7 @@ fun FlashScreen(vm: AppViewModel) {
             BinaryRain(cols = 12, rows = 5, fontSizeSp = 14)
             Spacer(Modifier.height(18.dp))
             Text(
-                "Готуйте ESP32 + ST-Link V2 — вже скоро",
+                tr("Готуйте ESP32 + ST-Link V2 — вже скоро"),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary,

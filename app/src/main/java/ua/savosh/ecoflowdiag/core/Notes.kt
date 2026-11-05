@@ -25,9 +25,9 @@ object Notes {
     const val STATION = "station"
 
     fun kindLabel(kind: String): String = when (kind) {
-        CHECKLIST -> "Чеклист"
-        STATION -> "До станції"
-        else -> "Замітка"
+        CHECKLIST -> tr("Чеклист")
+        STATION -> tr("До станції")
+        else -> tr("Замітка")
     }
 
     fun kindEmoji(kind: String): String = when (kind) {

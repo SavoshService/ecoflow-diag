@@ -1,5 +1,6 @@
 package ua.savosh.ecoflowdiag.ui
 
+import ua.savosh.ecoflowdiag.core.tr
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -34,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 import ua.savosh.ecoflowdiag.core.Analyzer.fmt0
@@ -71,25 +73,25 @@ fun BalanceScreen(vm: AppViewModel) {
         topBar = {
             TopAppBar(
                 navigationIcon = {
-                    IconButton(onClick = { vm.back() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад") }
+                    IconButton(onClick = { vm.back() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr("Назад")) }
                 },
                 title = {
                     Column {
-                        Text("Перевірка балансу", fontWeight = FontWeight.Bold)
-                        Text(vm.diagSn ?: "", fontFamily = Mono, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        FitText(tr("Перевірка балансу"), fontWeight = FontWeight.Bold)
+                        FitText(vm.diagSn ?: "", fontFamily = Mono, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 },
                 actions = {
                     IconButton(
-                        onClick = { vm.balanceResultText()?.let { shareText(context, it, "Перевірка балансу ${vm.diagSn}") } },
+                        onClick = { vm.balanceResultText()?.let { shareText(context, it, tr("Перевірка балансу {0}", vm.diagSn)) } },
                         enabled = b != null && b.phase != BalanceCheck.Phase.IDLE,
-                    ) { Icon(Icons.Filled.Share, contentDescription = "Поділитися результатом") }
+                    ) { Icon(Icons.Filled.Share, contentDescription = tr("Поділитися результатом")) }
                 },
             )
         },
     ) { pad ->
         if (b == null) {
-            Text("Спершу відкрийте діагностику станції.", modifier = Modifier.padding(pad).padding(24.dp))
+            Text(tr("Спершу відкрийте діагностику станції."), modifier = Modifier.padding(pad).padding(24.dp))
             return@Scaffold
         }
         Column(
@@ -103,13 +105,13 @@ fun BalanceScreen(vm: AppViewModel) {
             }
             val warnings = b.warnings()
             if (warnings.isNotEmpty()) {
-                SectionCard("Зверніть увагу") {
+                SectionCard(tr("Зверніть увагу")) {
                     for (w in warnings) FindingRow(Level.WARN, w)
                 }
             }
             if (b.phase == BalanceCheck.Phase.IDLE) {
                 vm.lastBalanceCheck(b.sn)?.let { last ->
-                    SectionCard("Попередня перевірка цієї станції", collapsible = true, initiallyExpanded = false) {
+                    SectionCard(tr("Попередня перевірка цієї станції"), collapsible = true, initiallyExpanded = false) {
                         Text(last, style = MaterialTheme.typography.bodySmall, fontFamily = Mono)
                     }
                 }
@@ -120,68 +122,64 @@ fun BalanceScreen(vm: AppViewModel) {
     if (confirmReset) {
         AlertDialog(
             onDismissRequest = { confirmReset = false },
-            title = { Text("Скасувати перевірку?") },
-            text = { Text("Зафіксований розкид буде скинуто. Почати можна знову будь-коли.") },
-            confirmButton = { TextButton(onClick = { confirmReset = false; vm.balanceReset() }) { Text("Скасувати перевірку") } },
-            dismissButton = { TextButton(onClick = { confirmReset = false }) { Text("Продовжити") } },
+            title = { Text(tr("Скасувати перевірку?")) },
+            text = { DialogText(tr("Зафіксований розкид буде скинуто. Почати можна знову будь-коли.")) },
+            confirmButton = { TextButton(onClick = { confirmReset = false; vm.balanceReset() }) { Text(tr("Скасувати перевірку")) } },
+            dismissButton = { TextButton(onClick = { confirmReset = false }) { Text(tr("Продовжити")) } },
         )
     }
 }
 
 @Composable
 private fun IntroCard(vm: AppViewModel, b: BalanceCheck) {
-    SectionCard("Як це працює") {
+    SectionCard(tr("Як це працює")) {
         Text(
-            "У LFP розбаланс груп видно лише наприкінці заряду: на плато (≈3.3 В) навіть розбалансовані групи мають " +
-                "майже однакову напругу. Застосунок сам зафіксує найбільший розкид, коли групи вийдуть з плато " +
-                "(вище 3.45 В; для NCM — від 90% заряду), і лише за ним зробить висновок.",
+            tr("У LFP розбаланс груп видно лише наприкінці заряду: на плато (≈3.3 В) навіть розбалансовані групи мають майже однакову напругу. Застосунок сам зафіксує найбільший розкид, коли групи вийдуть з плато (вище 3.45 В; для NCM — від 90% заряду), і лише за ним зробить висновок."),
             style = MaterialTheme.typography.bodyMedium,
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            "1. Поставте станцію на заряд від мережі, ліміт заряду — 100%.\n" +
-                "2. Натисніть «Почати» і не закривайте застосунок до кінця заряду — екран не гасне.\n" +
-                "3. Найшвидше почати з 80–90%: перевірка триває, поки станція не дозарядиться.",
+            tr("1. Поставте станцію на заряд від мережі, ліміт заряду — 100%.\n2. Натисніть «Почати» і не закривайте застосунок до кінця заряду — екран не гасне.\n3. Найшвидше почати з 80–90%: перевірка триває, поки станція не дозарядиться."),
             style = MaterialTheme.typography.bodyMedium,
         )
         Spacer(Modifier.height(10.dp))
         LiveValues(b)
         Spacer(Modifier.height(10.dp))
-        Button(onClick = { vm.balanceStart() }, modifier = Modifier.fillMaxWidth()) { Text("Почати перевірку") }
+        Button(onClick = { vm.balanceStart() }, modifier = Modifier.fillMaxWidth()) { Text(tr("Почати перевірку")) }
     }
 }
 
 @Composable
 private fun RunningCard(vm: AppViewModel, b: BalanceCheck, now: Long, onCancel: () -> Unit) {
-    SectionCard("Перевірка триває") {
+    SectionCard(tr("Перевірка триває")) {
         LiveValues(b)
         Spacer(Modifier.height(8.dp))
         val worst = b.worst()
         val status = when {
-            worst != null -> "Зафіксовано розкид біля верху заряду: ${worst.deltaMv} мВ. Оновиться, якщо зросте."
-            b.inZoneNow() -> "Батарея в зоні висновку — розкид фіксується."
+            worst != null -> tr("Зафіксовано розкид біля верху заряду: {0} мВ. Оновиться, якщо зросте.", worst.deltaMv)
+            b.inZoneNow() -> tr("Батарея в зоні висновку — розкид фіксується.")
             b.chemistry == Chemistry.LFP ->
-                "Групи ще на плато" + (b.maxCellMv?.let { " (найвища ${fmt3(it / 1000.0)} В)" } ?: "") + " — чекаємо виходу вище 3.45 В."
-            else -> "Чекаємо, поки заряд дійде до 90%."
+                tr("Групи ще на плато") + (b.maxCellMv?.let { tr(" (найвища {0} В)", fmt3(it / 1000.0)) } ?: "") + tr(" — чекаємо виходу вище 3.45 В.")
+            else -> tr("Чекаємо, поки заряд дійде до 90%.")
         }
         Text(status, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
         val stale = b.lastDataMs > 0 && now - b.lastDataMs > 180_000
         if (b.autoDone) {
             Spacer(Modifier.height(6.dp))
-            BalanceHint("Станція дозарядилась. Натисніть «Завершити».")
+            BalanceHint(tr("Станція дозарядилась. Натисніть «Завершити»."))
         } else if (stale) {
             Spacer(Modifier.height(6.dp))
-            BalanceHint("Дані не надходять кілька хвилин — перевірте зв'язок станції.")
+            BalanceHint(tr("Дані не надходять кілька хвилин — перевірте зв'язок станції."))
         }
         Spacer(Modifier.height(10.dp))
-        Button(onClick = { vm.balanceFinish() }, modifier = Modifier.fillMaxWidth()) { Text("Завершити") }
-        TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("Скасувати") }
+        Button(onClick = { vm.balanceFinish() }, modifier = Modifier.fillMaxWidth()) { Text(tr("Завершити")) }
+        TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text(tr("Скасувати")) }
     }
 }
 
 @Composable
 private fun ResultCard(vm: AppViewModel, b: BalanceCheck) {
-    SectionCard("Результат") {
+    SectionCard(tr("Результат")) {
         val res = b.results
         if (res.isEmpty()) {
             FindingRow(Level.UNKNOWN, b.noZoneText())
@@ -196,22 +194,22 @@ private fun ResultCard(vm: AppViewModel, b: BalanceCheck) {
                 Spacer(Modifier.height(6.dp))
                 Text(v.detail, style = MaterialTheme.typography.bodyMedium)
                 BalanceHint(
-                    "Зафіксовано при заряді ${t.soc?.let { fmt0(it) + "%" } ?: "?"}" +
-                        (t.maxCellMv?.let { ", найвища група ${fmt3(it / 1000.0)} В" } ?: "") + ".",
+                    tr("Зафіксовано при заряді {0}", t.soc?.let { fmt0(it) + "%" } ?: "?") +
+                        (t.maxCellMv?.let { tr(", найвища група {0} В", fmt3(it / 1000.0)) } ?: "") + ".",
                 )
                 Spacer(Modifier.height(10.dp))
             }
         }
-        OutlinedButton(onClick = { vm.balanceReset() }, modifier = Modifier.fillMaxWidth()) { Text("Нова перевірка") }
+        OutlinedButton(onClick = { vm.balanceReset() }, modifier = Modifier.fillMaxWidth()) { Text(tr("Нова перевірка")) }
     }
 }
 
 @Composable
 private fun LiveValues(b: BalanceCheck) {
-    KeyValue("Заряд", b.soc?.let { "${fmt0(it)}%" } ?: "—")
-    KeyValue("Струм батареї", b.ampA?.let { (if (it > 0) "+" else "") + "${fmt1(it)} А" } ?: "—")
-    KeyValue("Найвища група", b.maxCellMv?.let { "${fmt3(it / 1000.0)} В" } ?: "—")
-    KeyValue("Розкид зараз", b.deltaMv?.let { "$it мВ" } ?: "—")
+    KeyValue(tr("Заряд"), b.soc?.let { "${fmt0(it)}%" } ?: "—")
+    KeyValue(tr("Струм батареї"), b.ampA?.let { (if (it > 0) "+" else "") + tr("{0} А", fmt1(it)) } ?: "—")
+    KeyValue(tr("Найвища група"), b.maxCellMv?.let { tr("{0} В", fmt3(it / 1000.0)) } ?: "—")
+    KeyValue(tr("Розкид зараз"), b.deltaMv?.let { tr("{0} мВ", it) } ?: "—")
 }
 
 @Composable

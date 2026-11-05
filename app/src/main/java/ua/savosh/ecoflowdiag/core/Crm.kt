@@ -3,11 +3,14 @@ package ua.savosh.ecoflowdiag.core
 import java.util.Calendar
 
 /** Статус замовлення майстерні. */
-enum class OrderStatus(val key: String, val emoji: String, val label: String, val hint: String) {
-    RED("red", "🔴", "В черзі", "Щойно прийнятий"),
-    YELLOW("yellow", "🟡", "В роботі", "Діагностика / чекає деталі"),
-    GREEN("green", "🟢", "Готово", "Ремонт завершено"),
+enum class OrderStatus(val key: String, private val labelKey: String, private val hintKey: String) {
+    RED("red", tk("В черзі"), tk("Щойно прийнятий")),
+    YELLOW("yellow", tk("В роботі"), tk("Діагностика / чекає деталі")),
+    GREEN("green", tk("Готово"), tk("Ремонт завершено")),
     ;
+
+    val label: String get() = tr(labelKey)
+    val hint: String get() = tr(hintKey)
 
     companion object {
         fun of(k: String?): OrderStatus = entries.firstOrNull { it.key == k } ?: RED
@@ -15,12 +18,14 @@ enum class OrderStatus(val key: String, val emoji: String, val label: String, va
 }
 
 /** Канал, яким звернувся клієнт. */
-enum class OrderChannel(val key: String, val label: String, val tag: String) {
+enum class OrderChannel(val key: String, private val labelKey: String, val tag: String) {
     INSTAGRAM("instagram", "Instagram", "IG"),
     WHATSAPP("whatsapp", "WhatsApp", "WA"),
     TELEGRAM("telegram", "Telegram", "TG"),
-    CALL("call", "Дзвінок", "📞"),
+    CALL("call", tk("Дзвінок"), "📞"),
     ;
+
+    val label: String get() = tr(labelKey)
 
     companion object {
         fun of(k: String?): OrderChannel = entries.firstOrNull { it.key == k } ?: CALL
@@ -35,7 +40,7 @@ data class Order(
     val completedAt: Long?,
     val deviceType: String = "",
     val model: String = "",
-    val clientName: String = "Невідомо",
+    val clientName: String = tk("Невідомо"),
     val phone: String = "",
     val channel: String = "call",
     val description: String = "",
@@ -85,7 +90,7 @@ object Crm {
     }
 
     /**
-     * Бухгалтерія: рахує ТІЛЬКИ замовлення зі статусом 🟢 «Готово» (не з корзини) за період.
+     * Бухгалтерія: рахує ТІЛЬКИ замовлення зі статусом «Готово» (не з корзини) за період.
      * Запчастини рахуються окремо, чистий прибуток = оборот − запчастини (−10% прибрано).
      */
     fun accounting(orders: List<Order>, from: Long?, to: Long?): AccountStats {
@@ -133,6 +138,6 @@ object Crm {
             if (i > 0 && (digits.length - i) % 3 == 0) sb.append(' ')
             sb.append(ch)
         }
-        return (if (neg) "-" else "") + sb.toString() + " ₴"
+        return (if (neg) "-" else "") + sb.toString() + tr(" ₴")
     }
 }

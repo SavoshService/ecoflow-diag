@@ -1,5 +1,6 @@
 package ua.savosh.ecoflowdiag.ui
 
+import ua.savosh.ecoflowdiag.core.tr
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -29,8 +30,8 @@ fun StationInfoScreen(vm: AppViewModel) {
     Scaffold(
         topBar = {
             TopAppBar(
-                navigationIcon = { IconButton(onClick = { vm.back() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад") } },
-                title = { Text("Повна інформація про станцію", fontWeight = FontWeight.Bold, maxLines = 1) },
+                navigationIcon = { IconButton(onClick = { vm.back() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr("Назад")) } },
+                title = { FitText(tr("Повна інформація про станцію"), fontWeight = FontWeight.Bold) },
             )
         },
     ) { pad ->
@@ -40,34 +41,31 @@ fun StationInfoScreen(vm: AppViewModel) {
         ) {
             SoonBadge()
 
-            SectionCard("Станція") {
+            SectionCard(tr("Станція")) {
                 Text(sn, fontWeight = FontWeight.SemiBold)
-                Text("Серійний номер", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(tr("Серійний номер"), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
-            SectionCard("Навіщо це") {
+            SectionCard(tr("Навіщо це")) {
                 Text(
-                    "Розділ для перевірки станції перед купівлею (щоб знати, що береш, і що тебе не обманюють): " +
-                        "повна «біографія» станції в одному місці.",
+                    tr("Розділ для перевірки станції перед купівлею (щоб знати, що береш, і що тебе не обманюють): повна «біографія» станції в одному місці."),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
 
-            SectionCard("Що планується показувати") {
-                Bullet("Модель і покоління, дата виробництва (за серійним номером)")
-                Bullet("Версії прошивок (PD, інвертор, MPPT, Wi-Fi, BMS)")
-                Bullet("Реальний стан батареї: SOH, цикли, розкид комірок")
-                Bullet("Напрацювання і енергія за весь час")
-                Bullet("Перше увімкнення / дата активації — якщо хмара EcoFlow віддає")
-                Bullet("Кількість власників / прив'язок акаунта — якщо хмара EcoFlow віддає")
+            SectionCard(tr("Що планується показувати")) {
+                Bullet(tr("Модель і покоління, дата виробництва (за серійним номером)"))
+                Bullet(tr("Версії прошивок (PD, інвертор, MPPT, Wi-Fi, BMS)"))
+                Bullet(tr("Реальний стан батареї: SOH, цикли, розкид комірок"))
+                Bullet(tr("Напрацювання і енергія за весь час"))
+                Bullet(tr("Перше увімкнення / дата активації — якщо хмара EcoFlow віддає"))
+                Bullet(tr("Кількість власників / прив'язок акаунта — якщо хмара EcoFlow віддає"))
             }
 
-            SectionCard("Чесно про обмеження") {
+            SectionCard(tr("Чесно про обмеження")) {
                 Text(
-                    "Частину (модель, прошивки, цикли, енергію, здоров'я) можна зчитати вже зараз — її підтягну в цей розділ. " +
-                        "А от «кількість власників» і «дата першої активації» залежать від того, чи віддає їх закритий API EcoFlow — " +
-                        "це ще перевіряю. Що виявиться доступним — з'явиться тут з оновленням.",
+                    tr("Частину (модель, прошивки, цикли, енергію, здоров'я) можна зчитати вже зараз — її підтягну в цей розділ. А от «кількість власників» і «дата першої активації» залежать від того, чи віддає їх закритий API EcoFlow — це ще перевіряю. Що виявиться доступним — з'явиться тут з оновленням."),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

@@ -97,7 +97,7 @@ object CodeHistory {
         for (p in r.packs) {
             for (c in p.codes) out.add(Tracked("${p.key}|${c.title}", p.title, c.title, CodeState(c.value, c.level)))
         }
-        for (c in r.protections) out.add(Tracked("station|${c.title}", "Станція", c.title, CodeState(c.value, c.level)))
+        for (c in r.protections) out.add(Tracked("station|${c.title}", tr("Станція"), c.title, CodeState(c.value, c.level)))
         return out
     }
 
@@ -106,8 +106,8 @@ object CodeHistory {
         val parts = ArrayList<String>()
         val main = r.packs.firstOrNull { it.isMain } ?: r.packs.firstOrNull()
         main?.soc?.let { parts.add("SOC ${Analyzer.fmt0(it)}%") }
-        r.mode.firstOrNull { it.title == "Режим роботи" }?.let { parts.add(it.value) }
-        main?.ampMa?.let { parts.add("струм ${Analyzer.fmt1(it / 1000.0)} А") }
+        r.mode.firstOrNull { it.title == tr("Режим роботи") }?.let { parts.add(it.value) }
+        main?.ampMa?.let { parts.add(tr("струм {0} А", Analyzer.fmt1(it / 1000.0))) }
         main?.maxCellTemp?.let { parts.add("$it °C") }
         return parts.joinToString(", ").ifEmpty { null }
     }
@@ -116,17 +116,18 @@ object CodeHistory {
 
     fun timeText(ms: Long): String = SimpleDateFormat("dd.MM.yy HH:mm", Locale.US).format(Date(ms))
 
-    fun changeText(e: CodeEvent): String = if (e.from == null) "виявлено: ${e.to}" else "${e.from} → ${e.to}"
+    fun changeText(e: CodeEvent): String =
+        if (e.from == null) tr("виявлено: {0}", localize(e.to)) else "${localize(e.from)} → ${localize(e.to)}"
 
     fun whenText(e: CodeEvent): String =
         if (e.betweenChecks) {
-            "між перевірками" + (e.prevCheckMs?.let { " (${timeText(it)} → ${timeText(e.timeMs)})" } ?: "")
+            tr("між перевірками") + (e.prevCheckMs?.let { " (${timeText(it)} → ${timeText(e.timeMs)})" } ?: "")
         } else {
             timeText(e.timeMs)
         }
 
     fun line(e: CodeEvent): String =
-        "${whenText(e)} · ${e.scope} · ${e.title}: ${changeText(e)}" + (e.context?.let { " [$it]" } ?: "")
+        "${whenText(e)} · ${localize(e.scope)} · ${localize(e.title)}: ${changeText(e)}" + (e.context?.let { " [${localize(it)}]" } ?: "")
 
     // ------------------------------------------------------------ збереження (JSON)
 

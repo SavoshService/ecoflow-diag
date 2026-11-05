@@ -54,11 +54,11 @@ object StationLog {
         val ca = a.cycles
         val cb = b.cycles
         val dCyc = if (ca != null && cb != null) cb - ca else null
-        val since = "з ${dateShort(a.timeMs)}"
+        val since = tr("з {0}", dateShort(a.timeMs))
         val change = when {
-            abs(dSoh) < 1 -> "здоров'я не змінилось"
-            dSoh < 0 -> "здоров'я знизилось на ${fmt0(-dSoh)}%"
-            else -> "здоров'я зросло на ${fmt0(dSoh)}% — BMS перекалібрувалась, батарея від цього не покращала"
+            abs(dSoh) < 1 -> tr("здоров'я не змінилось")
+            dSoh < 0 -> tr("здоров'я знизилось на {0}%", fmt0(-dSoh))
+            else -> tr("здоров'я зросло на {0}% — BMS перекалібрувалась, батарея від цього не покращала", fmt0(dSoh))
         }
         if (dCyc != null && dCyc >= 100 && dSoh <= -1) {
             val per100 = -dSoh * 100.0 / dCyc
@@ -69,25 +69,25 @@ object StationLog {
                 Chemistry.UNKNOWN -> null
             }
             val judge = typical?.let {
-                if (per100 > it * 2) " — швидше за типове для ${chem.short} (≈${fmt1(it)}%)" else " — у межах типового для ${chem.short}"
+                if (per100 > it * 2) tr(" — швидше за типове для {0} (≈{1}%)", chem.short, fmt1(it)) else tr(" — у межах типового для {0}", chem.short)
             } ?: ""
-            return "За $dCyc ${cyclesWord(dCyc)} ($since) $change — ≈${fmt1(per100)}% на 100 циклів$judge."
+            return tr("За {0} {1} ({2}) {3} — ≈{4}% на 100 циклів{5}.", dCyc, cyclesWord(dCyc), since, change, fmt1(per100), judge)
         }
         if (days < 30 && (dCyc ?: 0L) < 30) return null
         val cyc = dCyc?.let { ", $it ${cyclesWord(it)}" } ?: ""
-        return "За $days ${daysWord(days)}$cyc ($since) $change."
+        return tr("За {0} {1}{2} ({3}) {4}.", days, daysWord(days), cyc, since, change)
     }
 
     fun line(e: LogEntry): String {
         val d = dateShort(e.timeMs)
         return when (e.kind) {
-            DIAG -> "$d · діагностика: " + listOfNotNull(
+            DIAG -> tr("{0} · діагностика: ", d) + listOfNotNull(
                 e.soh?.let { "SOH ${fmt0(it)}%" },
                 e.cycles?.let { "$it ${cyclesWord(it)}" },
-                e.deltaMv?.let { "розкид $it мВ" + (e.soc?.let { s -> " при ${fmt0(s)}%" } ?: "") },
+                e.deltaMv?.let { tr("розкид {0} мВ", it) + (e.soc?.let { s -> tr(" при {0}%", fmt0(s)) } ?: "") },
             ).joinToString(", ").ifEmpty { "—" }
-            BALANCE -> "$d · перевірка балансу: ${e.text ?: "—"}"
-            CAPACITY -> "$d · тест ємності: ${e.text ?: "—"}"
+            BALANCE -> tr("{0} · перевірка балансу: {1}", d, e.text?.let { localize(it) } ?: "—")
+            CAPACITY -> tr("{0} · тест ємності: {1}", d, e.text?.let { localize(it) } ?: "—")
             else -> "$d · ${e.text ?: e.kind}"
         }
     }
@@ -122,6 +122,8 @@ object StationLog {
     }
 
     private fun plural(n: Long, one: String, few: String, many: String): String {
+        // В англійській лише дві форми, тож українське правило «21 цикл» тут не працює.
+        if (I18n.current != AppLang.UK) return if (n == 1L) one else many
         val m100 = n % 100
         val m10 = n % 10
         return when {
@@ -132,8 +134,8 @@ object StationLog {
         }
     }
 
-    private fun cyclesWord(n: Long) = plural(n, "цикл", "цикли", "циклів")
-    private fun daysWord(n: Long) = plural(n, "день", "дні", "днів")
+    private fun cyclesWord(n: Long) = plural(n, tr("цикл"), tr("цикли"), tr("циклів"))
+    private fun daysWord(n: Long) = plural(n, tr("день"), tr("дні"), tr("днів"))
 }
 
 /**

@@ -1,5 +1,6 @@
 package ua.savosh.ecoflowdiag.ui
 
+import ua.savosh.ecoflowdiag.core.tr
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -29,6 +30,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 /** Резервна копія — лише через Google-акаунт (прихована тека застосунку на Google Диску). */
@@ -38,8 +40,8 @@ fun BackupScreen(vm: AppViewModel) {
     Scaffold(
         topBar = {
             TopAppBar(
-                navigationIcon = { IconButton(onClick = { vm.back() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад") } },
-                title = { Text("💾 Резервна копія", fontWeight = FontWeight.Bold) },
+                navigationIcon = { IconButton(onClick = { vm.back() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr("Назад")) } },
+                title = { FitText(tr("💾 Резервна копія"), fontWeight = FontWeight.Bold) },
             )
         },
     ) { pad ->
@@ -49,12 +51,10 @@ fun BackupScreen(vm: AppViewModel) {
         ) {
             Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
                 Column(Modifier.padding(16.dp)) {
-                    Text("Навіщо це", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Text(tr("Навіщо це"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "Коли видаляєш застосунок, Android стирає всі його дані. Увійди через Google — і станції, " +
-                            "замовлення, склад, замітки й талмуд зберігатимуться у твоєму Google Диску самі. " +
-                            "Пароль EcoFlow у копію НЕ потрапляє.",
+                        tr("Коли видаляєш застосунок, Android стирає всі його дані. Увійди через Google — і станції, замовлення, склад, замітки й талмуд зберігатимуться у твоєму Google Диску самі. Пароль EcoFlow у копію НЕ потрапляє."),
                         style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -65,38 +65,36 @@ fun BackupScreen(vm: AppViewModel) {
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
             ) {
                 Column(Modifier.padding(16.dp)) {
-                    Text("☁️ Google-акаунт (автоматично)", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                    Text(tr("☁️ Google-акаунт (автоматично)"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(6.dp))
                     if (vm.gdConnected) {
                         Text(
-                            "✓ Підключено: ${vm.gdEmail.ifBlank { "Google акаунт" }}",
+                            tr("✓ Підключено: {0}", vm.gdEmail.ifBlank { tr("Google акаунт") }),
                             style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            "Дані самі зберігаються в хмарі після кожної зміни. Перевстановив застосунок — " +
-                                "увійди цим самим акаунтом, і все підтягнеться автоматично.",
+                            tr("Дані самі зберігаються в хмарі після кожної зміни. Перевстановив застосунок — увійди цим самим акаунтом, і все підтягнеться автоматично."),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
                         Spacer(Modifier.height(10.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = { vm.syncGoogleNow() }) { Text("Синхронізувати зараз") }
-                            TextButton(onClick = { vm.disconnectGoogle() }) { Text("Відключити") }
+                            OutlinedButton(onClick = { vm.syncGoogleNow() }, modifier = Modifier.weight(1f)) { FitText(tr("Синхронізувати зараз")) }
+                            TextButton(onClick = { vm.disconnectGoogle() }) { FitText(tr("Відключити")) }
                         }
                     } else if (vm.gdConfigured) {
                         Text(
-                            "Увійди один раз своїм Google-акаунтом — і копія оновлюватиметься сама. " +
-                                "Нічого вибирати вручну не треба.",
+                            tr("Увійди один раз своїм Google-акаунтом — і копія оновлюватиметься сама. Нічого вибирати вручну не треба."),
                             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
                         Spacer(Modifier.height(10.dp))
                         Button(onClick = { vm.connectGoogle() }, modifier = Modifier.fillMaxWidth()) {
-                            Text("Увійти через Google")
+                            Text(tr("Увійти через Google"))
                         }
                     } else {
                         Text(
-                            "Синхронізацію Google не налаштовано в цій збірці.",
+                            tr("Синхронізацію Google не налаштовано в цій збірці."),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
                     }
@@ -115,16 +113,15 @@ fun BackupScreen(vm: AppViewModel) {
 fun RestoreDialog(vm: AppViewModel) {
     AlertDialog(
         onDismissRequest = { vm.dismissRestore() },
-        title = { Text("Відновити дані?", fontWeight = FontWeight.Bold) },
+        title = { FitText(tr("Відновити дані?"), fontWeight = FontWeight.Bold) },
         text = {
-            Text(
-                "Якщо раніше ти входив через Google — увійди тим самим акаунтом, і я відновлю станції, " +
-                    "замовлення, склад, замітки й талмуд. Якщо копії немає — просто почни з чистого.",
+            DialogText(
+                tr("Якщо раніше ти входив через Google — увійди тим самим акаунтом, і я відновлю станції, замовлення, склад, замітки й талмуд. Якщо копії немає — просто почни з чистого."),
             )
         },
         confirmButton = {
-            TextButton(onClick = { vm.dismissRestore(); vm.connectGoogle() }) { Text("Увійти через Google") }
+            TextButton(onClick = { vm.dismissRestore(); vm.connectGoogle() }) { Text(tr("Увійти через Google")) }
         },
-        dismissButton = { TextButton(onClick = { vm.dismissRestore() }) { Text("Почати заново") } },
+        dismissButton = { TextButton(onClick = { vm.dismissRestore() }) { Text(tr("Почати заново")) } },
     )
 }

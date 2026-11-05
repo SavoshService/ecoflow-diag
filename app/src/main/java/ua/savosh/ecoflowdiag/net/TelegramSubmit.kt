@@ -12,8 +12,8 @@ import java.net.URLEncoder
  * Усе з талмуда відправляється автоматично у фоні (без кнопок і написів).
  */
 object TelegramConfig {
-    // токен — з local.properties / GitHub Secrets (див. app/build.gradle.kts), у коді його немає
-    val BOT_TOKEN: String = BuildConfig.TG_BOT_TOKEN
+    // токен окремого бота застосунку — з local.properties / GitHub Secrets (див. app/build.gradle.kts), у коді його немає
+    val BOT_TOKEN: String by lazy { Secrets.reveal("TG_APP_BOT_TOKEN", BuildConfig.TG_APP_TOKEN_X) }
     const val CHAT_ID = "-1003744655236" // група «Савош_Сервіс суспільство»
     const val ADMIN_CHAT_ID = "8067993283" // особистий чат майстра — для кодів помилок
 
